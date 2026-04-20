@@ -33,25 +33,20 @@ export default function LoginPage() {
     <div className="min-h-screen flex">
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex-col justify-center items-center p-12">
         <div className="text-center">
-          <div className="w-20 h-20 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-8 backdrop-blur-sm">
-            <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-            </svg>
-          </div>
-          <h1 className="text-4xl font-bold text-white mb-4">Sistema de Inventario</h1>
-          <p className="text-slate-400 text-lg max-w-md">
-            Gestiona tus productos, controla el stock y conoce el valor de tu inventario en tiempo real
+          <h1 className="text-5xl font-bold text-white mb-3 tracking-tight">Control Total</h1>
+          <p className="text-slate-400 text-base max-w-sm mx-auto">
+            Gestiona productos, controla el stock y conoce el valor de tu inventario en tiempo real
           </p>
         </div>
 
         <div className="mt-16 grid grid-cols-1 gap-6 text-left">
           {[
-            { icon: '📦', title: 'Gestión de Productos', desc: 'Crea, edita y elimina productos fácilmente' },
-            { icon: '📊', title: 'Control de Stock', desc: 'Registra entradas y salidas de inventario' },
-            { icon: '💰', title: 'Valor de Inventario', desc: 'Calcula el valor total en tiempo real' },
+            { title: 'Gestión de Productos', desc: 'Crea, edita y elimina productos fácilmente' },
+            { title: 'Control de Stock', desc: 'Registra entradas y salidas por talla' },
+            { title: 'Valor de Inventario', desc: 'Calcula el valor total en tiempo real' },
           ].map((feature, i) => (
-            <div key={i} className="flex items-center gap-4 text-white">
-              <span className="text-2xl">{feature.icon}</span>
+            <div key={i} className="flex items-start gap-4 text-white">
+              <div className="w-1.5 h-1.5 rounded-full bg-slate-400 mt-2 shrink-0" />
               <div>
                 <p className="font-semibold">{feature.title}</p>
                 <p className="text-sm text-slate-400">{feature.desc}</p>
@@ -64,12 +59,8 @@ export default function LoginPage() {
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-gray-50">
         <div className="w-full max-w-md">
           <div className="lg:hidden text-center mb-8">
-            <div className="w-16 h-16 bg-slate-900 rounded-xl flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">Sistema de Inventario</h1>
+            <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Control Total</h1>
+            <p className="text-sm text-gray-400 mt-1">by Tracta</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl p-8">
@@ -118,7 +109,7 @@ export default function LoginPage() {
           </div>
 
           <p className="text-center text-sm text-gray-400 mt-8">
-            © 2026 Sistema de Gestión de Inventario
+            © 2026 by Tracta
           </p>
         </div>
       </div>
