@@ -25,20 +25,18 @@ interface RawMovement {
   quantity: number;
   created_at: string;
   variant: {
+    size: string;
     product: { id: string; name: string; price: number };
   } | null;
 }
 
 interface ProductStock {
+  id: string;
   name: string;
+  price: number;
   stock: number;
   value: number;
-}
-
-interface TimePoint {
-  label: string;
-  Entradas: number;
-  Salidas: number;
+  variants: { size: string; current_stock: number }[];
 }
 
 const PERIODS: { label: string; value: Period }[] = [
@@ -81,6 +79,8 @@ export default function AnalyticsPage() {
   const [metric, setMetric] = useState<Metric>('value');
   const [movements, setMovements] = useState<RawMovement[]>([]);
   const [productStocks, setProductStocks] = useState<ProductStock[]>([]);
+  const [productList, setProductList] = useState<{ id: string; name: string }[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState('');
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async (p: Period) => {
@@ -88,11 +88,10 @@ export default function AnalyticsPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
 
-    // Movements for the period
     const from = getFromDate(p);
     let q = supabase
       .from('stock_movements')
-      .select('type, quantity, created_at, variant:product_variants(product:products(id, name, price))')
+      .select('type, quantity, created_at, variant:product_variants(size, product:products(id, name, price))')
       .eq('user_id', user.id)
       .order('created_at', { ascending: true });
     if (from) q = q.gte('created_at', from.toISOString());
@@ -100,17 +99,22 @@ export default function AnalyticsPage() {
     const { data: mvs } = await q;
     setMovements((mvs as unknown as RawMovement[]) || []);
 
-    // Current stock per product
     const { data: products } = await supabase
       .from('products')
-      .select('name, price, variants:product_variants(current_stock)')
+      .select('id, name, price, variants:product_variants(size, current_stock)')
       .eq('user_id', user.id)
       .order('name');
 
+    const parsed = ((products || []) as {
+      id: string; name: string; price: number;
+      variants: { size: string; current_stock: number }[];
+    }[]);
+
+    setProductList(parsed.map((p) => ({ id: p.id, name: p.name })));
     setProductStocks(
-      ((products || []) as { name: string; price: number; variants: { current_stock: number }[] }[]).map((p) => {
+      parsed.map((p) => {
         const stock = p.variants.reduce((s, v) => s + v.current_stock, 0);
-        return { name: p.name, stock, value: stock * p.price };
+        return { id: p.id, name: p.name, price: p.price, stock, value: stock * p.price, variants: p.variants };
       })
     );
 
@@ -119,10 +123,19 @@ export default function AnalyticsPage() {
 
   useEffect(() => { load(period); }, [period, load]);
 
-  // Build time series chart data
-  const timeData: TimePoint[] = (() => {
+  // Filter movements to selected product
+  const filteredMovements = selectedProductId
+    ? movements.filter((m) => m.variant?.product?.id === selectedProductId)
+    : movements;
+
+  const selectedProduct = selectedProductId
+    ? productStocks.find((p) => p.id === selectedProductId) ?? null
+    : null;
+
+  // Time series
+  const timeData = (() => {
     const map = new Map<string, { in: number; out: number }>();
-    for (const m of movements) {
+    for (const m of filteredMovements) {
       const key = getBucketKey(new Date(m.created_at), period);
       const price = m.variant?.product?.price ?? 0;
       const val = metric === 'qty' ? m.quantity : m.quantity * price;
@@ -138,8 +151,9 @@ export default function AnalyticsPage() {
     }));
   })();
 
-  // Build per-product bar data
+  // Per-product movement chart (only when viewing all)
   const productData = (() => {
+    if (selectedProductId) return [];
     const map = new Map<string, { in: number; out: number }>();
     for (const m of movements) {
       const name = m.variant?.product?.name ?? 'Desconocido';
@@ -159,6 +173,41 @@ export default function AnalyticsPage() {
       .sort((a, b) => b.Entradas + b.Salidas - (a.Entradas + a.Salidas));
   })();
 
+  // Per-size movement chart (only when product selected)
+  const sizeMovementData = (() => {
+    if (!selectedProductId) return [];
+    const map = new Map<string, { in: number; out: number }>();
+    for (const m of filteredMovements) {
+      const size = m.variant?.size ?? '?';
+      const price = m.variant?.product?.price ?? 0;
+      const val = metric === 'qty' ? m.quantity : m.quantity * price;
+      const entry = map.get(size) ?? { in: 0, out: 0 };
+      if (m.type === 'in') entry.in += val;
+      else entry.out += val;
+      map.set(size, entry);
+    }
+    return Array.from(map.entries())
+      .map(([name, v]) => ({
+        name,
+        Entradas: Math.round(v.in * 100) / 100,
+        Salidas: Math.round(v.out * 100) / 100,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  // Stock chart data
+  const stockChartData = selectedProduct
+    ? selectedProduct.variants
+        .sort((a, b) => a.size.localeCompare(b.size))
+        .map((v) => ({
+          name: v.size,
+          Stock: metric === 'value' ? Math.round(v.current_stock * selectedProduct.price) : v.current_stock,
+        }))
+    : productStocks.map((p) => ({
+        name: p.name.length > 16 ? p.name.slice(0, 14) + '…' : p.name,
+        Stock: metric === 'value' ? Math.round(p.value) : p.stock,
+      }));
+
   const tooltipFmt = (value: number | string) => {
     const n = typeof value === 'string' ? parseFloat(value) : value;
     return metric === 'value' ? fmt(n) : `${n} u.`;
@@ -173,7 +222,22 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Controls */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3 items-end">
+        {/* Product selector */}
+        <div className="min-w-[200px]">
+          <label className="block text-xs font-medium text-gray-500 mb-1">Producto</label>
+          <select
+            value={selectedProductId}
+            onChange={(e) => setSelectedProductId(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg shadow-sm focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white"
+          >
+            <option value="">Todos los productos</option>
+            {productList.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
           {PERIODS.map((p) => (
             <button
@@ -187,6 +251,7 @@ export default function AnalyticsPage() {
             </button>
           ))}
         </div>
+
         <div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
           <button
             onClick={() => setMetric('value')}
@@ -201,12 +266,13 @@ export default function AnalyticsPage() {
             Unidades
           </button>
         </div>
+
         <div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
           <button
             onClick={() => setChartType('line')}
             className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${chartType === 'line' ? 'bg-slate-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
           >
-            Linea
+            Línea
           </button>
           <button
             onClick={() => setChartType('bar')}
@@ -217,16 +283,35 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
+      {/* Selected product badge */}
+      {selectedProduct && (
+        <div className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+          <div>
+            <span className="text-sm font-semibold text-slate-900">{selectedProduct.name}</span>
+            <span className="text-sm text-slate-500 ml-2">
+              Stock total: {selectedProduct.stock} u. · Valor: {fmt(selectedProduct.value)}
+            </span>
+          </div>
+          <button
+            onClick={() => setSelectedProductId('')}
+            className="ml-auto text-xs text-slate-400 hover:text-slate-600 px-2 py-1 rounded hover:bg-slate-200"
+          >
+            Ver todos
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="h-64 flex items-center justify-center">
           <div className="w-8 h-8 border-4 border-slate-900 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : (
         <>
-          {/* Time series chart */}
+          {/* Time series */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h2 className="text-base font-semibold text-gray-900 mb-4">
-              Movimientos en el tiempo — {metric === 'value' ? 'Valor ($)' : 'Unidades'}
+              Movimientos en el tiempo
+              {selectedProduct ? ` — ${selectedProduct.name}` : ''} — {metric === 'value' ? 'Valor ($)' : 'Unidades'}
             </h2>
             {timeData.length === 0 ? (
               <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
@@ -238,7 +323,7 @@ export default function AnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#d1d5db" />
                   <YAxis tick={{ fontSize: 11 }} stroke="#d1d5db" tickFormatter={yFmt} />
-                  { /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ }
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                   <Tooltip formatter={tooltipFmt as any} />
                   <Legend />
                   <Line type="monotone" dataKey="Entradas" stroke="#22c55e" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
@@ -251,7 +336,7 @@ export default function AnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#d1d5db" />
                   <YAxis tick={{ fontSize: 11 }} stroke="#d1d5db" tickFormatter={yFmt} />
-                  { /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ }
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                   <Tooltip formatter={tooltipFmt as any} />
                   <Legend />
                   <Bar dataKey="Entradas" fill="#22c55e" radius={[3, 3, 0, 0]} />
@@ -261,18 +346,18 @@ export default function AnalyticsPage() {
             )}
           </div>
 
-          {/* Per-product movement chart */}
-          {productData.length > 0 && (
+          {/* Movement by size (product selected) */}
+          {selectedProductId && sizeMovementData.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <h2 className="text-base font-semibold text-gray-900 mb-4">
-                Movimientos por producto — {metric === 'value' ? 'Valor ($)' : 'Unidades'}
+                Movimientos por talla — {metric === 'value' ? 'Valor ($)' : 'Unidades'}
               </h2>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={productData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={sizeMovementData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#d1d5db" />
+                  <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="#d1d5db" />
                   <YAxis tick={{ fontSize: 11 }} stroke="#d1d5db" tickFormatter={yFmt} />
-                  { /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ }
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                   <Tooltip formatter={tooltipFmt as any} />
                   <Legend />
                   <Bar dataKey="Entradas" fill="#22c55e" radius={[3, 3, 0, 0]} />
@@ -282,27 +367,45 @@ export default function AnalyticsPage() {
             </div>
           )}
 
-          {/* Stock value by product */}
-          {productStocks.length > 0 && (
+          {/* Per-product movement chart (all products view) */}
+          {!selectedProductId && productData.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
               <h2 className="text-base font-semibold text-gray-900 mb-4">
-                Stock actual por producto — {metric === 'value' ? 'Valor ($)' : 'Unidades'}
+                Movimientos por producto — {metric === 'value' ? 'Valor ($)' : 'Unidades'}
               </h2>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart
-                  data={productStocks.map((p) => ({
-                    name: p.name.length > 16 ? p.name.slice(0, 14) + '…' : p.name,
-                    Stock: metric === 'value' ? Math.round(p.value) : p.stock,
-                  }))}
-                  margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
-                >
+                <BarChart data={productData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#d1d5db" />
                   <YAxis tick={{ fontSize: 11 }} stroke="#d1d5db" tickFormatter={yFmt} />
-                  { /* eslint-disable-next-line @typescript-eslint/no-explicit-any */ }
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  <Tooltip formatter={tooltipFmt as any} />
+                  <Legend />
+                  <Bar dataKey="Entradas" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="Salidas" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Stock chart */}
+          {stockChartData.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+              <h2 className="text-base font-semibold text-gray-900 mb-4">
+                {selectedProduct
+                  ? `Stock actual por talla — ${selectedProduct.name}`
+                  : 'Stock actual por producto'}
+                {' '}— {metric === 'value' ? 'Valor ($)' : 'Unidades'}
+              </h2>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={stockChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="name" tick={{ fontSize: selectedProduct ? 12 : 11 }} stroke="#d1d5db" />
+                  <YAxis tick={{ fontSize: 11 }} stroke="#d1d5db" tickFormatter={yFmt} />
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                   <Tooltip formatter={tooltipFmt as any} />
                   <Bar dataKey="Stock" radius={[3, 3, 0, 0]}>
-                    {productStocks.map((_, i) => (
+                    {stockChartData.map((_, i) => (
                       <Cell key={i} fill={COLORS[i % COLORS.length]} />
                     ))}
                   </Bar>

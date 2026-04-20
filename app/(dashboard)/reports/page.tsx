@@ -5,11 +5,11 @@ import { supabase } from '@/lib/supabase';
 
 interface MovementRow {
   id: string;
-  type: 'in' | 'out';
+  type: 'in' | 'out' | 'adjustment';
   product: string;
   product_code: string;
   size: string;
-  quantity: number;
+  quantity: number; // firmado: negativo para ajuste a la baja
   stock_after: number;
   date: string;
 }
@@ -18,7 +18,9 @@ export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
-  const [movements, setMovements] = useState<MovementRow[]>([]);
+  const [productFilter, setProductFilter] = useState('');
+  const [sizeFilter, setSizeFilter] = useState('');
+  const [rawMovements, setRawMovements] = useState<MovementRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchMovements = useCallback(async () => {
@@ -26,7 +28,7 @@ export default function ReportsPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        setMovements([]);
+        setRawMovements([]);
         return;
       }
 
@@ -47,7 +49,7 @@ export default function ReportsPage() {
       const { data, error } = await query;
       if (error) throw error;
 
-      setMovements(
+      setRawMovements(
         (data || []).map((m: any) => ({
           id: m.id,
           type: m.type,
@@ -70,11 +72,27 @@ export default function ReportsPage() {
     fetchMovements();
   }, [fetchMovements]);
 
+  // Client-side filters
+  const productOptions = [...new Set(rawMovements.map((m) => m.product))].filter(Boolean).sort();
+  const sizeOptions = [...new Set(
+    (productFilter ? rawMovements.filter((m) => m.product === productFilter) : rawMovements)
+      .map((m) => m.size)
+  )].filter(Boolean).sort();
+
+  const movements = rawMovements.filter(
+    (m) => (!productFilter || m.product === productFilter) && (!sizeFilter || m.size === sizeFilter)
+  );
+
+  const handleProductChange = (val: string) => {
+    setProductFilter(val);
+    setSizeFilter('');
+  };
+
   const exportCSV = () => {
     const header = ['Fecha', 'Tipo', 'Código', 'Producto', 'Talla', 'Cantidad', 'Stock Final'];
     const rows = movements.map((m) => [
       m.date,
-      m.type === 'in' ? 'Entrada' : 'Salida',
+      m.type === 'in' ? 'Entrada' : m.type === 'out' ? 'Salida' : m.quantity > 0 ? 'Ajuste ▲' : 'Ajuste ▼',
       m.product_code,
       m.product,
       m.size,
@@ -82,9 +100,6 @@ export default function ReportsPage() {
       m.stock_after.toString(),
     ]);
 
-    // Previene CSV injection: valores que empiezan con =, +, -, @, TAB o CR
-    // son interpretados como fórmula por Excel/Sheets. Los neutralizamos
-    // prefijándolos con una comilla simple y además escapamos dobles comillas.
     const escapeCell = (value: string) => {
       const str = String(value);
       const needsPrefix = /^[=+\-@\t\r]/.test(str);
@@ -124,7 +139,9 @@ export default function ReportsPage() {
         </button>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      {/* Filters */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-4">
+        {/* Row 1: date range + type */}
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">Desde</label>
@@ -144,7 +161,7 @@ export default function ReportsPage() {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
             />
           </div>
-          <div className="w-full sm:w-48">
+          <div className="w-full sm:w-40">
             <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
             <select
               value={typeFilter}
@@ -154,9 +171,58 @@ export default function ReportsPage() {
               <option value="">Todos</option>
               <option value="in">Entradas</option>
               <option value="out">Salidas</option>
+              <option value="adjustment">Ajustes</option>
             </select>
           </div>
         </div>
+
+        {/* Row 2: product + size */}
+        <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Producto</label>
+            <select
+              value={productFilter}
+              onChange={(e) => handleProductChange(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+            >
+              <option value="">Todos los productos</option>
+              {productOptions.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:w-48">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Talla</label>
+            <select
+              value={sizeFilter}
+              onChange={(e) => setSizeFilter(e.target.value)}
+              disabled={sizeOptions.length === 0}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500 disabled:opacity-50"
+            >
+              <option value="">Todas las tallas</option>
+              {sizeOptions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+          {(productFilter || sizeFilter) && (
+            <div className="flex items-end">
+              <button
+                onClick={() => { setProductFilter(''); setSizeFilter(''); }}
+                className="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Limpiar
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Active filter summary */}
+        {(productFilter || sizeFilter || typeFilter || dateFrom || dateTo) && (
+          <p className="text-xs text-gray-400">
+            Mostrando {movements.length} de {rawMovements.length} movimientos
+          </p>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -183,9 +249,17 @@ export default function ReportsPage() {
                   <tr key={m.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{m.date}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${m.type === 'in' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                        {m.type === 'in' ? 'Entrada' : 'Salida'}
-                      </span>
+                      {m.type === 'in' && (
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">Entrada</span>
+                      )}
+                      {m.type === 'out' && (
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">Salida</span>
+                      )}
+                      {m.type === 'adjustment' && (
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${m.quantity > 0 ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}`}>
+                          Ajuste {m.quantity > 0 ? '▲' : '▼'}
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       <span className="font-medium">{m.product_code}</span> — {m.product}
@@ -194,9 +268,13 @@ export default function ReportsPage() {
                       <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs font-medium uppercase">{m.size}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">
-                      <span className={m.type === 'in' ? 'text-green-600' : 'text-red-600'}>
-                        {m.type === 'in' ? '+' : '-'}{m.quantity}
-                      </span>
+                      {m.type === 'in' && <span className="text-green-600">+{m.quantity}</span>}
+                      {m.type === 'out' && <span className="text-red-600">-{m.quantity}</span>}
+                      {m.type === 'adjustment' && (
+                        <span className={m.quantity > 0 ? 'text-blue-600' : 'text-orange-600'}>
+                          {m.quantity > 0 ? '+' : ''}{m.quantity}
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">{m.stock_after}</td>
                   </tr>
@@ -212,7 +290,11 @@ export default function ReportsPage() {
               </svg>
             </div>
             <h3 className="text-lg font-medium text-gray-900 mb-2">No hay movimientos</h3>
-            <p className="text-gray-500">Los movimientos aparecerán aquí al sumar o restar stock</p>
+            <p className="text-gray-500">
+              {rawMovements.length > 0
+                ? 'Ningún movimiento coincide con los filtros aplicados'
+                : 'Los movimientos aparecerán aquí al sumar o restar stock'}
+            </p>
           </div>
         )}
       </div>
