@@ -1,116 +1,194 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 
-interface RecentProduct {
-  code: string;
-  name: string;
-  stock: number;
-  price: number;
-}
+type Period = '7d' | '30d' | '90d' | '365d' | 'all';
+type Metric = 'qty' | 'value';
 
-interface RecentMovement {
+interface RawMovement {
   id: string;
   type: 'in' | 'out';
-  product: string;
-  size: string;
   quantity: number;
-  date: string;
+  created_at: string;
+  variant: { product: { price: number; name: string } } | null;
 }
 
+interface ChartPoint {
+  label: string;
+  Entradas: number;
+  Salidas: number;
+}
+
+interface PeriodSummary {
+  inQty: number;
+  outQty: number;
+  inVal: number;
+  outVal: number;
+}
+
+const PERIODS: { label: string; value: Period }[] = [
+  { label: 'Semana', value: '7d' },
+  { label: 'Mes', value: '30d' },
+  { label: '3 meses', value: '90d' },
+  { label: '1 año', value: '365d' },
+  { label: 'Todo', value: 'all' },
+];
+
+function getFromDate(period: Period): Date | null {
+  if (period === 'all') return null;
+  const days = { '7d': 7, '30d': 30, '90d': 90, '365d': 365 }[period];
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getBucketKey(date: Date, period: Period): string {
+  if (period === '7d' || period === '30d') {
+    return date.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' });
+  }
+  if (period === '90d') {
+    const d = new Date(date);
+    d.setDate(d.getDate() - d.getDay());
+    return d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' });
+  }
+  return date.toLocaleDateString('es-CL', { month: 'short', year: '2-digit' });
+}
+
+function buildChart(movements: RawMovement[], period: Period, metric: Metric): ChartPoint[] {
+  const map = new Map<string, { in: number; out: number }>();
+
+  for (const m of movements) {
+    const key = getBucketKey(new Date(m.created_at), period);
+    const price = m.variant?.product?.price ?? 0;
+    const val = metric === 'qty' ? m.quantity : m.quantity * price;
+    const entry = map.get(key) ?? { in: 0, out: 0 };
+    if (m.type === 'in') entry.in += val;
+    else entry.out += val;
+    map.set(key, entry);
+  }
+
+  return Array.from(map.entries()).map(([label, v]) => ({
+    label,
+    Entradas: Math.round(v.in * 100) / 100,
+    Salidas: Math.round(v.out * 100) / 100,
+  }));
+}
+
+function buildSummary(movements: RawMovement[]): PeriodSummary {
+  return movements.reduce(
+    (acc, m) => {
+      const val = m.quantity * (m.variant?.product?.price ?? 0);
+      if (m.type === 'in') { acc.inQty += m.quantity; acc.inVal += val; }
+      else { acc.outQty += m.quantity; acc.outVal += val; }
+      return acc;
+    },
+    { inQty: 0, outQty: 0, inVal: 0, outVal: 0 }
+  );
+}
+
+const fmt = (n: number) =>
+  n.toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
+
 export default function DashboardPage() {
+  const [period, setPeriod] = useState<Period>('30d');
+  const [metric, setMetric] = useState<Metric>('value');
   const [totals, setTotals] = useState({ products: 0, stock: 0, value: 0, todayMovements: 0 });
-  const [recentProducts, setRecentProducts] = useState<RecentProduct[]>([]);
-  const [recentMovements, setRecentMovements] = useState<RecentMovement[]>([]);
+  const [movements, setMovements] = useState<RawMovement[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadDashboard();
+    loadTotals();
   }, []);
 
-  const loadDashboard = async () => {
+  useEffect(() => {
+    loadMovements(period);
+  }, [period]);
+
+  const loadTotals = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
     const { data: products } = await supabase
       .from('products')
-      .select('code, name, price, created_at, variants:product_variants(current_stock)')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+      .select('price, variants:product_variants(current_stock)')
+      .eq('user_id', user.id);
 
-    const list = (products || []) as Array<{
-      code: string;
-      name: string;
-      price: number;
-      created_at: string;
-      variants: { current_stock: number }[];
-    }>;
-
-    const totalStockPerProduct = list.map((p) => ({
-      ...p,
-      stock: p.variants.reduce((s, v) => s + v.current_stock, 0),
-    }));
-
-    const stock = totalStockPerProduct.reduce((sum, p) => sum + p.stock, 0);
-    const value = totalStockPerProduct.reduce((sum, p) => sum + p.price * p.stock, 0);
-
-    setTotals((prev) => ({ ...prev, products: list.length, stock, value }));
-    setRecentProducts(
-      totalStockPerProduct.slice(0, 5).map((p) => ({ code: p.code, name: p.name, stock: p.stock, price: p.price }))
-    );
+    const list = (products || []) as { price: number; variants: { current_stock: number }[] }[];
+    const stock = list.reduce((s, p) => s + p.variants.reduce((vs, v) => vs + v.current_stock, 0), 0);
+    const value = list.reduce((s, p) => s + p.price * p.variants.reduce((vs, v) => vs + v.current_stock, 0), 0);
 
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-
-    const { data: movements, count: todayCount } = await supabase
+    const { count } = await supabase
       .from('stock_movements')
-      .select('id, type, quantity, created_at, variant:product_variants(size, product:products(name))', {
-        count: 'exact',
-      })
+      .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
-      .gte('created_at', startOfDay.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(5);
+      .gte('created_at', startOfDay.toISOString());
 
-    setTotals((prev) => ({ ...prev, todayMovements: todayCount || 0 }));
-    setRecentMovements(
-      (movements || []).map((m: any) => ({
-        id: m.id,
-        type: m.type,
-        product: m.variant?.product?.name || '—',
-        size: m.variant?.size || '',
-        quantity: m.quantity,
-        date: new Date(m.created_at).toLocaleString('es'),
-      }))
-    );
+    setTotals({ products: list.length, stock, value, todayMovements: count || 0 });
   };
 
+  const loadMovements = useCallback(async (p: Period) => {
+    setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+
+    const from = getFromDate(p);
+    let query = supabase
+      .from('stock_movements')
+      .select('id, type, quantity, created_at, variant:product_variants(product:products(price, name))')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true });
+
+    if (from) query = query.gte('created_at', from.toISOString());
+
+    const { data } = await query;
+    setMovements((data as unknown as RawMovement[]) || []);
+    setLoading(false);
+  }, []);
+
+  const chartData = buildChart(movements, period, metric);
+  const summary = buildSummary(movements);
+
   const stats = [
-    { label: 'Total Productos', value: totals.products.toString(), icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4', color: 'bg-blue-500' },
-    { label: 'Stock Total', value: totals.stock.toString(), icon: 'M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4', color: 'bg-green-500' },
-    { label: 'Valor Inventario', value: `$${totals.value.toFixed(2)}`, icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z', color: 'bg-yellow-500' },
-    { label: 'Movimientos Hoy', value: totals.todayMovements.toString(), icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4', color: 'bg-purple-500' },
+    { label: 'Productos', value: totals.products.toString(), color: 'bg-blue-500', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
+    { label: 'Stock Total', value: totals.stock.toString(), color: 'bg-green-500', icon: 'M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4' },
+    { label: 'Valor Inventario', value: fmt(totals.value), color: 'bg-yellow-500', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
+    { label: 'Movimientos Hoy', value: totals.todayMovements.toString(), color: 'bg-purple-500', icon: 'M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4' },
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
         <p className="text-gray-500 mt-1">Resumen de tu inventario</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => (
-          <div key={index} className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats.map((s, i) => (
+          <div key={i} className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">{stat.label}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{stat.value}</p>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-500 truncate">{s.label}</p>
+                <p className="text-xl font-bold text-gray-900 mt-1 truncate">{s.value}</p>
               </div>
-              <div className={`w-12 h-12 ${stat.color} rounded-xl flex items-center justify-center`}>
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={stat.icon} />
+              <div className={`w-10 h-10 ${s.color} rounded-xl flex items-center justify-center shrink-0 ml-2`}>
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={s.icon} />
                 </svg>
               </div>
             </div>
@@ -118,112 +196,184 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Acciones Rápidas</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Link href="/products/new" className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
-            <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-            </div>
-            <div>
-              <p className="font-medium text-gray-900">Nuevo Producto</p>
-              <p className="text-sm text-gray-500">Agregar al inventario</p>
-            </div>
-          </Link>
-          <Link href="/products" className="flex items-center gap-3 p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors">
-            <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-            </div>
-            <div>
-              <p className="font-medium text-gray-900">Ver Productos</p>
-              <p className="text-sm text-gray-500">Stock por talla</p>
-            </div>
-          </Link>
-          <Link href="/reports" className="flex items-center gap-3 p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors">
-            <div className="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
-            <div>
-              <p className="font-medium text-gray-900">Reportes</p>
-              <p className="text-sm text-gray-500">Ver movimientos</p>
-            </div>
-          </Link>
+      {/* Period + Metric selectors */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
+          {PERIODS.map((p) => (
+            <button
+              key={p.value}
+              onClick={() => setPeriod(p.value)}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                period === p.value
+                  ? 'bg-slate-900 text-white'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
+          <button
+            onClick={() => setMetric('value')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              metric === 'value' ? 'bg-slate-900 text-white' : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            Valor ($)
+          </button>
+          <button
+            onClick={() => setMetric('qty')}
+            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+              metric === 'qty' ? 'bg-slate-900 text-white' : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            Unidades
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">Productos Recientes</h2>
-            <Link href="/products" className="text-sm text-blue-600 hover:text-blue-700 font-medium">Ver todos →</Link>
+      {/* Movement chart */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Movimientos de Stock</h2>
+          <Link href="/analytics" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+            Ver analíticas →
+          </Link>
+        </div>
+        {loading ? (
+          <div className="h-64 flex items-center justify-center">
+            <div className="w-8 h-8 border-4 border-slate-900 border-t-transparent rounded-full animate-spin" />
           </div>
-          <div className="p-6">
-            {recentProducts.length > 0 ? (
-              <div className="space-y-4">
-                {recentProducts.map((product, index) => (
-                  <div key={index} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
-                    <div>
-                      <p className="font-medium text-gray-900">{product.name}</p>
-                      <p className="text-sm text-gray-500">{product.code}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium text-gray-900">{product.stock} unidades</p>
-                      <p className="text-sm text-gray-500">${product.price.toFixed(2)}</p>
-                    </div>
-                  </div>
-                ))}
+        ) : chartData.length === 0 ? (
+          <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
+            No hay movimientos en el período seleccionado
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="#d1d5db" />
+              <YAxis
+                tick={{ fontSize: 12 }}
+                stroke="#d1d5db"
+                tickFormatter={(v) => metric === 'value' ? `$${(v / 1000).toFixed(0)}k` : String(v)}
+              />
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              <Tooltip formatter={((value: number) => metric === 'value' ? fmt(value) : `${value} u.`) as any} />
+              <Legend />
+              <Line
+                type="monotone"
+                dataKey="Entradas"
+                stroke="#22c55e"
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="Salidas"
+                stroke="#ef4444"
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Summary + Quick actions */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Period summary */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Resumen del período</h2>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+              <div>
+                <p className="text-sm font-medium text-green-800">Entradas</p>
+                <p className="text-2xl font-bold text-green-700">{summary.inQty.toLocaleString('es-CL')} u.</p>
               </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-gray-500 mb-2">No hay productos aún</p>
-                <Link href="/products/new" className="text-blue-600 hover:text-blue-700 text-sm font-medium">
-                  Crear primer producto →
-                </Link>
+              <div className="text-right">
+                <p className="text-sm text-green-600">Valor ingresado</p>
+                <p className="text-lg font-semibold text-green-700">{fmt(summary.inVal)}</p>
               </div>
-            )}
+            </div>
+            <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+              <div>
+                <p className="text-sm font-medium text-red-800">Salidas</p>
+                <p className="text-2xl font-bold text-red-700">{summary.outQty.toLocaleString('es-CL')} u.</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-red-600">Valor egresado</p>
+                <p className="text-lg font-semibold text-red-700">{fmt(summary.outVal)}</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div>
+                <p className="text-sm font-medium text-gray-700">Diferencia neta</p>
+                <p className={`text-2xl font-bold ${summary.inQty - summary.outQty >= 0 ? 'text-slate-700' : 'text-red-600'}`}>
+                  {(summary.inQty - summary.outQty) >= 0 ? '+' : ''}{(summary.inQty - summary.outQty).toLocaleString('es-CL')} u.
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-gray-500">Neto en valor</p>
+                <p className={`text-lg font-semibold ${summary.inVal - summary.outVal >= 0 ? 'text-slate-700' : 'text-red-600'}`}>
+                  {(summary.inVal - summary.outVal) >= 0 ? '+' : ''}{fmt(Math.abs(summary.inVal - summary.outVal))}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">Movimientos Recientes</h2>
-            <Link href="/reports" className="text-sm text-blue-600 hover:text-blue-700 font-medium">Ver todos →</Link>
-          </div>
-          <div className="p-6">
-            {recentMovements.length > 0 ? (
-              <div className="space-y-4">
-                {recentMovements.map((movement) => (
-                  <div key={movement.id} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${movement.type === 'in' ? 'bg-green-100' : 'bg-red-100'}`}>
-                        <span className={`text-sm ${movement.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
-                          {movement.type === 'in' ? '↓' : '↑'}
-                        </span>
-                      </div>
-                      <div>
-                        <p className="font-medium text-gray-900">
-                          {movement.product} <span className="text-gray-500 text-xs">· {movement.size}</span>
-                        </p>
-                        <p className="text-sm text-gray-500">{movement.date}</p>
-                      </div>
-                    </div>
-                    <span className={`font-medium ${movement.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
-                      {movement.type === 'in' ? '+' : '-'}{movement.quantity}
-                    </span>
-                  </div>
-                ))}
+        {/* Quick actions */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Acciones Rápidas</h2>
+          <div className="grid grid-cols-1 gap-3">
+            <Link href="/products/new" className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
+              <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
               </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-gray-500">No hay movimientos aún</p>
+              <div>
+                <p className="font-medium text-gray-900">Nuevo Producto</p>
+                <p className="text-sm text-gray-500">Agregar al inventario</p>
               </div>
-            )}
+            </Link>
+            <Link href="/products" className="flex items-center gap-3 p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors">
+              <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-medium text-gray-900">Ver Productos</p>
+                <p className="text-sm text-gray-500">Stock por talla</p>
+              </div>
+            </Link>
+            <Link href="/analytics" className="flex items-center gap-3 p-4 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+              <div className="w-10 h-10 bg-indigo-500 rounded-lg flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-medium text-gray-900">Analíticas</p>
+                <p className="text-sm text-gray-500">Gráficas por producto</p>
+              </div>
+            </Link>
+            <Link href="/reports" className="flex items-center gap-3 p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors">
+              <div className="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-medium text-gray-900">Reportes</p>
+                <p className="text-sm text-gray-500">Historial y exportar CSV</p>
+              </div>
+            </Link>
           </div>
         </div>
       </div>
