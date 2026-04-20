@@ -1,69 +1,122 @@
-# Sistema de Gestión de Inventario
+# Control Total
 
-Aplicación web de inventario con Next.js 14 + Supabase.
+Sistema de gestión de inventario para tiendas de ropa, con control de stock por talla, analíticas y reportes exportables.
 
-## Funcionalidades
+**Desarrollado por Tracta — Gestión TI**
 
-- Login con Supabase Auth (email + password)
-- CRUD de productos (código, nombre, descripción, precio, stock)
-- Dashboard con totales (productos, stock, valor, movimientos del día)
-- Reportes de movimientos con filtros (fecha, tipo) y exportación CSV
-- RLS en Supabase: cada usuario sólo ve sus propios datos
+**Demo en vivo:** https://balmais-opal.vercel.app
+
+---
+
+## Vistas principales
+
+### Login
+- Acceso con email y contraseña
+- Sesión persistente — no requiere volver a entrar al cerrar el navegador
+- Cada usuario ve **solo su propio inventario** (aislamiento total por RLS)
+
+---
+
+### Dashboard
+
+- 4 tarjetas: productos, stock total, valor inventario, movimientos del día
+- Filtro de período: **Semana / Mes / 3 meses / 1 año / Todo**
+- Toggle **Valor ($) / Unidades**
+- Gráfica de línea: Entradas (verde) vs Salidas (rojo)
+- Resumen del período: unidades y valor monetario + diferencia neta
+
+---
+
+### Productos
+
+- Lista con búsqueda por código o nombre
+- Filas expandibles que muestran **stock por talla**
+- Botones `+` / `−` por talla para registrar entradas/salidas al instante
+- Crear, editar y eliminar productos
+
+---
+
+### Nuevo Producto
+
+- Código, nombre, precio y descripción
+- Tallas dinámicas: agregar filas S, M, L, XL o cualquier denominación
+- Stock inicial por talla al momento de crear
+
+---
+
+### Analíticas
+
+- Toggle **Linea / Barras**
+- 3 gráficas:
+  1. Movimientos en el tiempo (Entradas vs Salidas)
+  2. Movimientos por producto en el período seleccionado
+  3. Stock actual por producto en colores
+
+---
+
+### Reportes
+
+- Historial completo: fecha, tipo, producto, talla, cantidad, stock final
+- Filtros por rango de fechas y tipo (Entrada / Salida / Todos)
+- Exportar a **CSV** compatible con Excel y Google Sheets
+
+---
 
 ## Stack
 
-Next.js 14 · React 18 · TypeScript · Tailwind · Supabase · Zod
+| Capa | Tecnología |
+|---|---|
+| Frontend | Next.js 14 (App Router), React 18, TypeScript |
+| Estilos | Tailwind CSS |
+| Backend / DB | Supabase (PostgreSQL + Auth) |
+| Gráficas | Recharts |
+| Validación | Zod |
+| Deploy | Vercel |
 
-## Puesta en marcha
+---
 
-### 1. Variables de entorno
+## Modelo de datos
 
-Copia `.env.local.example` a `.env.local` y completa:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://<tu-proyecto>.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<tu-anon-key>
+```
+products          → código, nombre, precio, user_id
+product_variants  → (product_id, talla, stock_actual)
+stock_movements   → (variant_id, tipo in|out, cantidad, stock_final, fecha)
 ```
 
-### 2. Base de datos
+- El stock real vive en `product_variants.current_stock`
+- Cada entrada/salida queda registrada en `stock_movements` con timestamp
+- RLS activo: cada usuario accede únicamente a sus datos
+- `register_stock_movement` es el único camino válido para modificar stock (atómico y validado)
 
-En Supabase → SQL Editor → New query, pega el contenido de
-[`supabase/schema.sql`](supabase/schema.sql) y ejecútalo una vez. Es
-idempotente (se puede re-ejecutar sin error).
+---
 
-### 3. Crear el primer usuario
+## Variables de entorno
 
-En Supabase → Authentication → Users → **Add user** (email + password,
-con "Auto Confirm User" activado). Ese usuario es el que usarás para
-ingresar a la app.
+```env
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+```
 
-### 4. Instalar y correr
+---
+
+## Correr localmente
 
 ```bash
 npm install
-npm run dev     # desarrollo en http://localhost:3000
-npm run build   # build de producción
-npm start       # servidor de producción
+npm run dev   # http://localhost:3000
 ```
 
-## Despliegue
+---
 
-Cualquier host compatible con Next.js 14 (Vercel recomendado). Define las
-dos variables `NEXT_PUBLIC_SUPABASE_*` en el panel del host. No hay
-secretos server-side adicionales: todo pasa por RLS.
+## Seguridad aplicada
 
-## Estructura
+- Row Level Security (RLS) en las 3 tablas de datos
+- Headers HTTP: CSP, HSTS, X-Frame-Options DENY, Referrer-Policy
+- REVOKE ALL al rol `anon`, permisos mínimos a `authenticated`
+- CHECK constraints en base de datos (formato código, precio máximo, longitud notas)
+- Protección contra CSV injection en exportaciones
+- `search_path = ''` en funciones PL/pgSQL
 
-```
-app/
-  (auth)/login/           – página de login
-  (dashboard)/            – layout protegido + páginas
-    page.tsx              – dashboard (totales, recientes)
-    products/             – lista y alta
-    reports/              – historial + CSV
-lib/supabase.ts           – cliente Supabase + helpers de cookie
-lib/validations.ts        – esquemas Zod
-middleware.ts             – protege rutas vía cookie sb-auth
-supabase/schema.sql       – esquema único para Supabase
-types/                    – tipos de dominio
-```
+---
+
+*by Tracta · 2026*
