@@ -78,6 +78,10 @@ export default function VendedorPage() {
   const lastPayment = payments[0] ?? null;
   const pendingFrom = lastPayment ? new Date(lastPayment.period_to) : null;
 
+  // Si el movimiento no tiene comisión guardada, la calcula del producto actual
+  const effComm = (m: OutMovement) =>
+    m.commission > 0 ? m.commission : (m.variant?.product?.comision ?? 0) * m.quantity;
+
   const visible = movements.filter((m) => {
     if (viewMode === 'pending') {
       return pendingFrom ? new Date(m.created_at) > pendingFrom : true;
@@ -87,18 +91,34 @@ export default function VendedorPage() {
     return new Date(m.created_at) >= from && new Date(m.created_at) <= to;
   });
 
-  const totalComision = visible.reduce((s, m) => s + m.commission, 0);
+  const totalComision = visible.reduce((s, m) => s + effComm(m), 0);
   const totalUnits = visible.reduce((s, m) => s + m.quantity, 0);
-  const pendingTotal = movements
-    .filter((m) => (pendingFrom ? new Date(m.created_at) > pendingFrom : true))
-    .reduce((s, m) => s + m.commission, 0);
+  const pendingMovements = movements.filter((m) =>
+    pendingFrom ? new Date(m.created_at) > pendingFrom : true
+  );
+  const pendingTotal = pendingMovements.reduce((s, m) => s + effComm(m), 0);
+
+  // Movimientos sin comisión guardada pero con comisión calculable del producto
+  const unsyncedCount = movements.filter(
+    (m) => m.commission === 0 && (m.variant?.product?.comision ?? 0) * m.quantity > 0
+  ).length;
+
+  const syncCommissions = async () => {
+    const toSync = movements.filter(
+      (m) => m.commission === 0 && (m.variant?.product?.comision ?? 0) * m.quantity > 0
+    );
+    for (const m of toSync) {
+      await supabase
+        .from('stock_movements')
+        .update({ commission: (m.variant!.product!.comision) * m.quantity })
+        .eq('id', m.id);
+    }
+    load();
+  };
 
   const startEdit = (m: OutMovement) => {
-    const suggested = m.commission > 0
-      ? m.commission
-      : (m.variant?.product?.comision ?? 0) * m.quantity;
     setEditRow(m.id);
-    setEditVal(String(suggested));
+    setEditVal(String(effComm(m)));
   };
 
   const saveCommission = async (id: string) => {
@@ -111,10 +131,7 @@ export default function VendedorPage() {
   };
 
   const handlePay = async () => {
-    const pendingMovements = movements.filter((m) =>
-      pendingFrom ? new Date(m.created_at) > pendingFrom : true
-    );
-    const amount = pendingMovements.reduce((s, m) => s + m.commission, 0);
+    const amount = pendingTotal;
     if (amount === 0 && !confirm('La comisión pendiente es $0. ¿Registrar igual?')) return;
     setPaying(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -262,6 +279,27 @@ export default function VendedorPage() {
         </div>
       </div>
 
+      {/* ── Sync banner ────────────────────────────────────────── */}
+      {unsyncedCount > 0 && (
+        <div className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3">
+          <div className="flex items-center gap-3">
+            <svg className="w-5 h-5 text-amber-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            <p className="text-sm text-amber-800">
+              <span className="font-semibold">{unsyncedCount} movimiento{unsyncedCount !== 1 ? 's' : ''}</span> sin comisión guardada —
+              ya calculados del producto para los totales, pero aún no persistidos.
+            </p>
+          </div>
+          <button
+            onClick={syncCommissions}
+            className="shrink-0 px-4 py-1.5 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 whitespace-nowrap"
+          >
+            Guardar comisiones
+          </button>
+        </div>
+      )}
+
       {/* ── Movements table ────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
@@ -305,11 +343,12 @@ export default function VendedorPage() {
               <tbody className="divide-y divide-gray-100">
                 {visible.map((m) => {
                   const isEditing = editRow === m.id;
-                  const hasNoCommission = m.commission === 0;
-                  const suggestedComision = (m.variant?.product?.comision ?? 0) * m.quantity;
+                  const stored = m.commission > 0;
+                  const calculated = effComm(m);
+                  const hasNoCommission = calculated === 0;
 
                   return (
-                    <tr key={m.id} className={`hover:bg-gray-50 ${hasNoCommission ? 'bg-amber-50/40' : ''}`}>
+                    <tr key={m.id} className={`hover:bg-gray-50 ${!stored && !hasNoCommission ? 'bg-amber-50/30' : ''}`}>
                       <td className="px-6 py-3 text-gray-500 whitespace-nowrap text-xs">{fmtDateTime(m.created_at)}</td>
                       <td className="px-6 py-3">
                         <span className="font-medium text-gray-900">{m.variant?.product?.name ?? '—'}</span>
@@ -348,19 +387,19 @@ export default function VendedorPage() {
                         ) : (
                           <div className="flex items-center justify-end gap-2">
                             {hasNoCommission ? (
-                              <span className="text-amber-600 font-medium text-xs flex items-center gap-1">
-                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                                </svg>
-                                Sin comisión
-                              </span>
+                              <span className="text-gray-300 text-sm">—</span>
                             ) : (
-                              <span className="font-semibold text-purple-700">{fmt(m.commission)}</span>
+                              <div className="flex flex-col items-end">
+                                <span className="font-semibold text-purple-700">{fmt(calculated)}</span>
+                                {!stored && (
+                                  <span className="text-xs text-amber-500">del producto</span>
+                                )}
+                              </div>
                             )}
                             <button
                               onClick={() => startEdit(m)}
-                              title={hasNoCommission && suggestedComision > 0 ? `Sugerido: ${fmt(suggestedComision)}` : 'Editar comisión'}
-                              className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                              title="Editar comisión"
+                              className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -454,8 +493,7 @@ export default function VendedorPage() {
               <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-1">Monto pendiente</p>
               <p className="text-4xl font-bold text-purple-800">{fmt(pendingTotal)}</p>
               <p className="text-xs text-purple-500 mt-2">
-                {movements.filter((m) => pendingFrom ? new Date(m.created_at) > pendingFrom : true).length} movimientos ·{' '}
-                {movements.filter((m) => pendingFrom ? new Date(m.created_at) > pendingFrom : true).reduce((s,m) => s+m.quantity,0)} unidades
+                {pendingMovements.length} movimientos · {pendingMovements.reduce((s, m) => s + m.quantity, 0)} unidades
               </p>
               {pendingFrom && (
                 <p className="text-xs text-purple-400 mt-1">
