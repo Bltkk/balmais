@@ -10,6 +10,7 @@ interface MovementTarget {
   productName: string;
   variant: ProductVariant;
   type: 'in' | 'out';
+  productComision: number;
 }
 
 interface AdjustTarget {
@@ -306,12 +307,12 @@ export default function ProductsPage() {
                                           {!discontinued && (
                                             <>
                                               <button
-                                                onClick={() => setTarget({ productName: product.name, variant: v, type: 'in' })}
+                                                onClick={() => setTarget({ productName: product.name, variant: v, type: 'in', productComision: product.comision ?? 0 })}
                                                 className="w-7 h-7 flex items-center justify-center bg-green-100 text-green-700 rounded hover:bg-green-200"
                                                 title="Entrada de stock"
                                               >+</button>
                                               <button
-                                                onClick={() => setTarget({ productName: product.name, variant: v, type: 'out' })}
+                                                onClick={() => setTarget({ productName: product.name, variant: v, type: 'out', productComision: product.comision ?? 0 })}
                                                 disabled={v.current_stock === 0}
                                                 className="w-7 h-7 flex items-center justify-center bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-40 disabled:cursor-not-allowed"
                                                 title="Salida de stock"
@@ -398,10 +399,12 @@ function StockMovementModal({
   const isIn = target.type === 'in';
   const max = target.variant.current_stock;
 
+  const qty = parseInt(quantity, 10) || 0;
+  const commissionTotal = !isIn && target.productComision > 0 ? target.productComision * qty : 0;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const qty = parseInt(quantity, 10);
     if (isNaN(qty) || qty <= 0) { setError('La cantidad debe ser mayor a 0'); return; }
     if (!isIn && qty > max) { setError(`Stock insuficiente (disponible: ${max})`); return; }
 
@@ -411,6 +414,7 @@ function StockMovementModal({
       p_type: target.type,
       p_quantity: qty,
       p_notes: notes || null,
+      p_commission: commissionTotal,
     });
     if (rpcErr) { setError(rpcErr.message); setSubmitting(false); return; }
     onSuccess();
@@ -448,6 +452,12 @@ function StockMovementModal({
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
             />
           </div>
+          {!isIn && commissionTotal > 0 && (
+            <div className="px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800">
+              Comisión vendedor: <span className="font-semibold">{commissionTotal.toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 })}</span>
+              <span className="text-purple-500 ml-1">({qty} × ${target.productComision.toLocaleString('es-CL')})</span>
+            </div>
+          )}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
               Cancelar

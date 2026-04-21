@@ -107,6 +107,26 @@ export default function RetornoPage() {
 
   const rows = filtered.map(calcProduct);
 
+  const exportCSV = () => {
+    const ivaHeader = applyIva ? `;IVA/u (${ivaRate}%);IVA total` : '';
+    const header = `Código;Producto;Stock;Precio venta${ivaHeader};Costo;Comisión/u;Margen/u;Margen %;Retorno total`;
+    const lines = rows.map((r) => {
+      const ivaFields = applyIva ? `;${r.ivaUnit};${r.totalIva}` : '';
+      return `${r.product.code};${r.product.name};${r.stock};${r.price}${ivaFields};${r.cost};${r.commission};${r.marginUnit};${Math.round(r.marginPct)}%;${r.totalReturn}`;
+    });
+    const totRow = applyIva
+      ? `TOTAL;;${totals.stock};${totals.revenue};${totals.iva};${totals.iva};${totals.cost};${totals.commission};;${totals.ret}`
+      : `TOTAL;;${totals.stock};${totals.revenue};${totals.cost};${totals.commission};;${totals.ret}`;
+    const csv = [header, ...lines, totRow].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `retorno_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const totals = rows.reduce(
     (acc, r) => ({
       stock: acc.stock + r.stock,
@@ -121,11 +141,24 @@ export default function RetornoPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Calculadora de Retorno</h1>
-        <p className="text-gray-500 mt-1">
-          Precios ingresados <strong>sin IVA</strong> — el IVA se calcula sobre el precio y se descuenta como costo
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Calculadora de Retorno</h1>
+          <p className="text-gray-500 mt-1">
+            Precios ingresados <strong>sin IVA</strong> — el IVA se calcula sobre el precio y se descuenta como costo
+          </p>
+        </div>
+        {rows.length > 0 && (
+          <button
+            onClick={exportCSV}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm whitespace-nowrap"
+          >
+            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Exportar Excel
+          </button>
+        )}
       </div>
 
       {/* Config panel */}

@@ -24,6 +24,7 @@ export default function NewProductPage() {
     description: '',
     price: '',
     cost: '',
+    comision: '',
     category_id: '',
   });
   const [sizes, setSizes] = useState<SizeRow[]>([
@@ -69,6 +70,7 @@ export default function NewProductPage() {
         description: formData.description || null,
         price: parseFloat(formData.price),
         cost: parseFloat(formData.cost || '0') || 0,
+        comision: parseInt(formData.comision || '0') || 0,
         user_id: user.id,
         category_id: formData.category_id || null,
       })
@@ -179,6 +181,21 @@ export default function NewProductPage() {
                 />
               </div>
               <p className="text-xs text-gray-500 mt-1">Precio al que comprás el producto</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Comisión vendedor</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <input
+                  type="number" step="100" min="0"
+                  value={formData.comision}
+                  onChange={(e) => setFormData({ ...formData, comision: e.target.value })}
+                  className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+                  placeholder="0"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Por unidad vendida (ej. $1.000 o $2.000)</p>
             </div>
           </div>
 

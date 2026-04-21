@@ -23,6 +23,7 @@ export default function EditProductPage() {
     description: '',
     price: '',
     cost: '',
+    comision: '',
     category_id: '',
     status: 'active' as 'active' | 'discontinued',
     low_stock_threshold: '5',
@@ -57,6 +58,7 @@ export default function EditProductPage() {
       description: data.description || '',
       price: data.price.toString(),
       cost: String(data.cost ?? 0),
+      comision: String(data.comision ?? 0),
       category_id: data.category_id || '',
       status: data.status || 'active',
       low_stock_threshold: String(data.low_stock_threshold ?? 5),
@@ -79,6 +81,7 @@ export default function EditProductPage() {
     if (isNaN(threshold) || threshold < 0) { setError('El umbral de stock bajo debe ser >= 0'); setSaving(false); return; }
 
     const cost = parseFloat(formData.cost || '0') || 0;
+    const comision = parseInt(formData.comision || '0') || 0;
 
     const { error: updateErr } = await supabase
       .from('products')
@@ -88,6 +91,7 @@ export default function EditProductPage() {
         description: formData.description || null,
         price,
         cost,
+        comision,
         category_id: formData.category_id || null,
         status: formData.status,
         low_stock_threshold: threshold,
@@ -213,6 +217,20 @@ export default function EditProductPage() {
                 />
               </div>
               <p className="text-xs text-gray-500 mt-1">Precio al que comprás el producto</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Comisión vendedor</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <input
+                  type="number" step="100" min="0" value={formData.comision}
+                  onChange={(e) => setFormData({ ...formData, comision: e.target.value })}
+                  className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+                  placeholder="0"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Por unidad vendida (ej. $1.000 o $2.000)</p>
             </div>
           </div>
 

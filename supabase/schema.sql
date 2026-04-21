@@ -25,6 +25,7 @@ CREATE TABLE products (
   description TEXT,
   price       DECIMAL(10, 2) NOT NULL CHECK (price > 0),
   cost        DECIMAL(10, 2) NOT NULL DEFAULT 0 CHECK (cost >= 0),
+  comision    INTEGER        NOT NULL DEFAULT 0 CHECK (comision >= 0),
   user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -50,6 +51,7 @@ CREATE TABLE stock_movements (
   quantity    INTEGER NOT NULL CHECK (quantity > 0),
   stock_after INTEGER NOT NULL CHECK (stock_after >= 0),
   notes       TEXT,
+  commission  INTEGER      NOT NULL DEFAULT 0 CHECK (commission >= 0),
   user_id     UUID NOT NULL REFERENCES auth.users(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -86,14 +88,16 @@ CREATE TRIGGER update_products_updated_at
 -- 5. RPC: registro atómico de movimiento de stock
 --    supabase.rpc('register_stock_movement', {
 --      p_variant_id: <uuid>, p_type: 'in'|'out',
---      p_quantity: <int>,    p_notes: <text|null>
+--      p_quantity: <int>,    p_notes: <text|null>,
+--      p_commission: <int|0>
 --    })
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION register_stock_movement(
   p_variant_id UUID,
   p_type       VARCHAR,
   p_quantity   INTEGER,
-  p_notes      TEXT DEFAULT NULL
+  p_notes      TEXT    DEFAULT NULL,
+  p_commission INTEGER DEFAULT 0
 )
 RETURNS stock_movements
 LANGUAGE plpgsql
@@ -112,13 +116,11 @@ BEGIN
     RAISE EXCEPTION 'quantity debe ser mayor a 0';
   END IF;
 
-  -- Lock de la variante para evitar condiciones de carrera
   SELECT * INTO v_variant FROM product_variants WHERE id = p_variant_id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Variante no encontrada';
   END IF;
 
-  -- Verificar que el usuario autenticado es dueño del producto padre
   SELECT user_id INTO v_owner FROM products WHERE id = v_variant.product_id;
   IF v_owner <> auth.uid() THEN
     RAISE EXCEPTION 'No autorizado';
@@ -136,13 +138,31 @@ BEGIN
 
   UPDATE product_variants SET current_stock = v_new_stock WHERE id = p_variant_id;
 
-  INSERT INTO stock_movements (variant_id, type, quantity, stock_after, notes, user_id)
-  VALUES (p_variant_id, p_type, p_quantity, v_new_stock, p_notes, auth.uid())
+  INSERT INTO stock_movements (variant_id, type, quantity, stock_after, notes, commission, user_id)
+  VALUES (p_variant_id, p_type, p_quantity, v_new_stock, p_notes, p_commission, auth.uid())
   RETURNING * INTO v_movement;
 
   RETURN v_movement;
 END;
 $$;
+
+-- -----------------------------------------------------------------------------
+-- 5b. Pagos al vendedor
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS vendor_payments (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  amount      INTEGER      NOT NULL CHECK (amount >= 0),
+  period_from TIMESTAMPTZ  NOT NULL,
+  period_to   TIMESTAMPTZ  NOT NULL,
+  notes       TEXT,
+  user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_vp_user_id ON vendor_payments(user_id);
+-- ⚠️ En instalaciones existentes (sin re-ejecutar el script) correr:
+-- ALTER TABLE products ADD COLUMN IF NOT EXISTS comision INTEGER NOT NULL DEFAULT 0 CHECK (comision >= 0);
+-- ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS commission INTEGER NOT NULL DEFAULT 0 CHECK (commission >= 0);
+-- (luego pegar el bloque CREATE OR REPLACE FUNCTION y CREATE TABLE vendor_payments de arriba)
 
 -- -----------------------------------------------------------------------------
 -- 6. ROW LEVEL SECURITY
@@ -201,3 +221,9 @@ CREATE POLICY "movements_insert_own" ON stock_movements
       WHERE v.id = stock_movements.variant_id AND p.user_id = auth.uid()
     )
   );
+
+-- Vendor payments RLS ---------------------------------------------------------
+ALTER TABLE vendor_payments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "vp_select_own" ON vendor_payments FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "vp_insert_own" ON vendor_payments FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "vp_delete_own" ON vendor_payments FOR DELETE USING (auth.uid() = user_id);

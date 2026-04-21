@@ -15,6 +15,7 @@ export interface Product {
   description: string | null;
   price: number;
   cost: number;
+  comision: number;
   user_id: string;
   category_id: string | null;
   status: 'active' | 'discontinued';
@@ -37,6 +38,17 @@ export interface StockMovement {
   type: 'in' | 'out' | 'adjustment';
   quantity: number; // firmado: positivo para in/ajuste-sube, negativo para ajuste-baja
   stock_after: number;
+  notes: string | null;
+  commission: number;
+  user_id: string;
+  created_at: string;
+}
+
+export interface VendorPayment {
+  id: string;
+  amount: number;
+  period_from: string;
+  period_to: string;
   notes: string | null;
   user_id: string;
   created_at: string;
