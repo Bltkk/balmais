@@ -11,7 +11,11 @@ export const productSchema = z.object({
     .max(255, 'El nombre no puede exceder 255 caracteres'),
   description: z.string().optional(),
   price: z.number()
-    .positive('El precio debe ser mayor a 0')
+    .positive('El precio debe ser mayor a 0'),
+  cost: z.number()
+    .min(0, 'El costo debe ser >= 0')
+    .optional()
+    .default(0),
 });
 
 export const stockMovementSchema = z.object({

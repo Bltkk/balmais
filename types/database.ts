@@ -14,6 +14,7 @@ export interface Product {
   name: string;
   description: string | null;
   price: number;
+  cost: number;
   user_id: string;
   category_id: string | null;
   status: 'active' | 'discontinued';

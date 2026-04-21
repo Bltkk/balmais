@@ -105,7 +105,7 @@ const fmt = (n: number) =>
 export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>('30d');
   const [metric, setMetric] = useState<Metric>('value');
-  const [totals, setTotals] = useState({ products: 0, stock: 0, value: 0, todayMovements: 0 });
+  const [totals, setTotals] = useState({ products: 0, stock: 0, value: 0, todayMovements: 0, returnPotential: 0 });
   const [movements, setMovements] = useState<RawMovement[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -123,11 +123,13 @@ export default function DashboardPage() {
 
     const { data: prods } = await supabase
       .from('products')
-      .select('id, price')
+      .select('id, price, cost')
       .eq('user_id', user.id);
 
     const prodList = prods || [];
-    const priceMap = new Map(prodList.map((p) => [p.id as string, p.price as number]));
+    const prodMap = new Map(
+      prodList.map((p) => [p.id as string, { price: p.price as number, cost: (p.cost ?? 0) as number }])
+    );
 
     const { data: variants } = prodList.length
       ? await supabase
@@ -138,7 +140,11 @@ export default function DashboardPage() {
 
     const varList = (variants || []) as { product_id: string; current_stock: number }[];
     const stock = varList.reduce((s, v) => s + v.current_stock, 0);
-    const value = varList.reduce((s, v) => s + (priceMap.get(v.product_id) ?? 0) * v.current_stock, 0);
+    const value = varList.reduce((s, v) => s + (prodMap.get(v.product_id)?.price ?? 0) * v.current_stock, 0);
+    const returnPotential = varList.reduce((s, v) => {
+      const p = prodMap.get(v.product_id);
+      return s + (p ? (p.price - p.cost) * v.current_stock : 0);
+    }, 0);
 
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
@@ -148,7 +154,7 @@ export default function DashboardPage() {
       .eq('user_id', user.id)
       .gte('created_at', startOfDay.toISOString());
 
-    setTotals({ products: prodList.length, stock, value, todayMovements: count || 0 });
+    setTotals({ products: prodList.length, stock, value, todayMovements: count || 0, returnPotential });
   };
 
   const loadMovements = useCallback(async (p: Period) => {
@@ -205,6 +211,38 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* Retorno Potencial */}
+      {totals.returnPotential > 0 && (
+        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-emerald-700 uppercase tracking-wide">Retorno Potencial</p>
+                <p className="text-2xl font-bold text-emerald-800">{fmt(totals.returnPotential)}</p>
+                <p className="text-xs text-emerald-600 mt-0.5">Ganancia bruta si vendés todo el stock actual</p>
+              </div>
+            </div>
+            <div className="flex gap-6 sm:gap-8 text-sm">
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Valor inventario</p>
+                <p className="font-semibold text-gray-800">{fmt(totals.value)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-0.5">Margen global</p>
+                <p className="font-semibold text-emerald-700">
+                  {totals.value > 0 ? Math.round((totals.returnPotential / totals.value) * 100) : 0}%
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Period + Metric selectors */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">

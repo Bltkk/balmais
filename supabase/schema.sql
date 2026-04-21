@@ -24,10 +24,13 @@ CREATE TABLE products (
   name        VARCHAR(255) NOT NULL,
   description TEXT,
   price       DECIMAL(10, 2) NOT NULL CHECK (price > 0),
+  cost        DECIMAL(10, 2) NOT NULL DEFAULT 0 CHECK (cost >= 0),
   user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+-- ⚠️  En instalaciones existentes (sin re-ejecutar este script completo) correr:
+-- ALTER TABLE products ADD COLUMN IF NOT EXISTS cost DECIMAL(10,2) NOT NULL DEFAULT 0 CHECK (cost >= 0);
 
 -- Variante por talla: una fila por (producto, talla) con su stock propio
 CREATE TABLE product_variants (

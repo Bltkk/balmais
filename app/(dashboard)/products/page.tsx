@@ -268,7 +268,23 @@ export default function ProductsPage() {
                       {isOpen && (
                         <tr key={`${product.id}-exp`} className="bg-gray-50/50">
                           <td />
-                          <td colSpan={6} className="px-6 py-4">
+                          <td colSpan={6} className="px-6 py-4 space-y-3">
+                            {product.cost > 0 && (
+                              <div className="flex flex-wrap gap-4 text-sm pb-3 border-b border-gray-200">
+                                <span className="text-gray-500">
+                                  Costo: <span className="font-medium text-gray-800">{fmt(product.cost)}</span>
+                                </span>
+                                <span className="text-gray-500">
+                                  Margen unit.: <span className="font-medium text-emerald-700">{fmt(product.price - product.cost)}</span>
+                                  <span className="ml-1 text-xs text-emerald-600">
+                                    ({product.price > 0 ? Math.round(((product.price - product.cost) / product.price) * 100) : 0}%)
+                                  </span>
+                                </span>
+                                <span className="text-gray-500">
+                                  Retorno potencial: <span className="font-semibold text-emerald-700">{fmt((product.price - product.cost) * stock)}</span>
+                                </span>
+                              </div>
+                            )}
                             {product.variants.length === 0 ? (
                               <p className="text-sm text-gray-500">Este producto no tiene tallas cargadas.</p>
                             ) : (
