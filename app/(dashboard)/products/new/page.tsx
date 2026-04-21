@@ -136,11 +136,11 @@ export default function NewProductPage() {
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
                 <input
-                  type="number" step="0.01" min="0"
+                  type="number" step="1" min="0"
                   value={formData.price}
                   onChange={(e) => setFormData({ ...formData, price: e.target.value })}
                   className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
-                  placeholder="0.00"
+                  placeholder="0"
                   required
                 />
               </div>

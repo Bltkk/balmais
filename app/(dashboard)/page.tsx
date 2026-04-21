@@ -121,14 +121,24 @@ export default function DashboardPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { data: products } = await supabase
+    const { data: prods } = await supabase
       .from('products')
-      .select('price, variants:product_variants(current_stock)')
+      .select('id, price')
       .eq('user_id', user.id);
 
-    const list = (products || []) as { price: number; variants: { current_stock: number }[] }[];
-    const stock = list.reduce((s, p) => s + p.variants.reduce((vs, v) => vs + v.current_stock, 0), 0);
-    const value = list.reduce((s, p) => s + p.price * p.variants.reduce((vs, v) => vs + v.current_stock, 0), 0);
+    const prodList = prods || [];
+    const priceMap = new Map(prodList.map((p) => [p.id as string, p.price as number]));
+
+    const { data: variants } = prodList.length
+      ? await supabase
+          .from('product_variants')
+          .select('product_id, current_stock')
+          .in('product_id', prodList.map((p) => p.id))
+      : { data: [] };
+
+    const varList = (variants || []) as { product_id: string; current_stock: number }[];
+    const stock = varList.reduce((s, v) => s + v.current_stock, 0);
+    const value = varList.reduce((s, v) => s + (priceMap.get(v.product_id) ?? 0) * v.current_stock, 0);
 
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
@@ -138,7 +148,7 @@ export default function DashboardPage() {
       .eq('user_id', user.id)
       .gte('created_at', startOfDay.toISOString());
 
-    setTotals({ products: list.length, stock, value, todayMovements: count || 0 });
+    setTotals({ products: prodList.length, stock, value, todayMovements: count || 0 });
   };
 
   const loadMovements = useCallback(async (p: Period) => {

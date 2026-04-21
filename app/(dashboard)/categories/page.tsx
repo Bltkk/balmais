@@ -116,7 +116,7 @@ export default function CategoriesPage() {
             <p className="text-sm text-red-600">{error}</p>
           </div>
         )}
-        <form onSubmit={handleCreate} className="flex flex-col sm:flex-row gap-3">
+        <form onSubmit={handleCreate} className="flex flex-col sm:flex-row sm:items-center gap-3">
           <input
             type="text"
             value={newName}
@@ -125,27 +125,29 @@ export default function CategoriesPage() {
             className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
             required
           />
-          <div className="flex gap-2 items-center">
-            {PALETTE.map((p) => (
-              <button
-                key={p.value}
-                type="button"
-                title={p.label}
-                onClick={() => setNewColor(p.value)}
-                className={`w-7 h-7 rounded-full border-2 transition-transform ${
-                  newColor === p.value ? 'border-gray-900 scale-110' : 'border-transparent hover:scale-105'
-                }`}
-                style={{ backgroundColor: p.value }}
-              />
-            ))}
+          <div className="flex items-center gap-3">
+            <div className="flex gap-2 items-center flex-1 sm:flex-none">
+              {PALETTE.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  title={p.label}
+                  onClick={() => setNewColor(p.value)}
+                  className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                    newColor === p.value ? 'border-gray-900 scale-110' : 'border-transparent hover:scale-105'
+                  }`}
+                  style={{ backgroundColor: p.value }}
+                />
+              ))}
+            </div>
+            <button
+              type="submit"
+              disabled={creating || !newName.trim()}
+              className="px-5 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap"
+            >
+              {creating ? 'Creando…' : 'Crear'}
+            </button>
           </div>
-          <button
-            type="submit"
-            disabled={creating || !newName.trim()}
-            className="px-5 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap"
-          >
-            {creating ? 'Creando…' : 'Crear'}
-          </button>
         </form>
       </div>
 

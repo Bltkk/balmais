@@ -35,6 +35,9 @@ const STATUS_LABEL: Record<string, string> = {
   agotado:    'Agotado',
 };
 
+const fmt = (n: number) =>
+  n.toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<ProductWithVariants[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -236,7 +239,7 @@ export default function ProductsPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                          ${product.price.toFixed(2)}
+                          {fmt(product.price)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -250,7 +253,7 @@ export default function ProductsPage() {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                          ${(product.price * stock).toFixed(2)}
+                          {fmt(product.price * stock)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm space-x-3">
                           <Link href={`/products/${product.id}`} className="text-blue-600 hover:text-blue-700">
