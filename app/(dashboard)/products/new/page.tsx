@@ -82,15 +82,33 @@ export default function NewProductPage() {
       return;
     }
 
-    const { error: variantsError } = await supabase.from('product_variants').insert(
-      cleanedSizes.map((s) => ({ product_id: product.id, size: s.size, current_stock: s.stock }))
-    );
+    const { data: insertedVariants, error: variantsError } = await supabase
+      .from('product_variants')
+      .insert(cleanedSizes.map((s) => ({ product_id: product.id, size: s.size, current_stock: 0 })))
+      .select();
 
-    if (variantsError) {
+    if (variantsError || !insertedVariants) {
       await supabase.from('products').delete().eq('id', product.id);
-      setError(`Error al crear tallas: ${variantsError.message}`);
+      setError(`Error al crear tallas: ${variantsError?.message}`);
       setLoading(false);
       return;
+    }
+
+    for (const variant of insertedVariants) {
+      const sizeRow = cleanedSizes.find((s) => s.size === variant.size);
+      if (sizeRow && sizeRow.stock > 0) {
+        const { error: rpcErr } = await supabase.rpc('register_stock_movement', {
+          p_variant_id: variant.id,
+          p_type: 'in',
+          p_quantity: sizeRow.stock,
+          p_notes: 'Stock inicial',
+        });
+        if (rpcErr) {
+          setError(`Error al registrar stock de talla ${variant.size}: ${rpcErr.message}`);
+          setLoading(false);
+          return;
+        }
+      }
     }
 
     router.push('/products');
