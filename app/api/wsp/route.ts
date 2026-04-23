@@ -1,5 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createHmac, timingSafeEqual } from 'crypto'
 import { supabaseAdmin } from '@/lib/supabase'
+
+async function verifySignature(request: NextRequest, rawBody: string): Promise<boolean> {
+  const secret = process.env.WHATSAPP_APP_SECRET
+  if (!secret) return false
+  const signature = request.headers.get('x-hub-signature-256')
+  if (!signature) return false
+  const expected = 'sha256=' + createHmac('sha256', secret).update(rawBody).digest('hex')
+  try {
+    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+  } catch {
+    return false
+  }
+}
+
+function isAuthorizedSender(from: string): boolean {
+  const whitelist = process.env.WHATSAPP_ALLOWED_NUMBERS
+  if (!whitelist) return true // si no hay whitelist, acepta todos
+  return whitelist.split(',').map(n => n.trim()).includes(from)
+}
 
 interface WhatsAppMessage {
   from: string
@@ -110,7 +130,17 @@ async function handleStockOperation(
 
   const sign = type === 'out' ? `-${quantity}` : `+${quantity}`
   const emoji = type === 'out' ? '📦' : '📥'
-  return `${emoji} Stock actualizado!\n\nProducto: ${product.name} (${code})\nTalla: ${variant.size}\nCantidad: ${sign}\nStock nuevo: ${data.stock_after}`
+  let msg = `${emoji} Stock actualizado!\n\nProducto: ${product.name} (${code})\nTalla: ${variant.size}\nCantidad: ${sign}\nStock nuevo: ${data.stock_after}`
+
+  if (type === 'out') {
+    if (data.stock_after === 0) {
+      msg += `\n\n🚨 *QUIEBRE DE STOCK*\n${product.name} talla ${variant.size} quedó sin unidades.`
+    } else if (data.stock_after < 5) {
+      msg += `\n\n⚠️ *Stock bajo* — quedan solo ${data.stock_after} unidades.`
+    }
+  }
+
+  return msg
 }
 
 async function handleStockQuery(code: string, userId: string): Promise<string> {
@@ -147,33 +177,64 @@ async function handleListProducts(userId: string): Promise<string> {
   return res
 }
 
+async function handleLowStock(userId: string): Promise<string> {
+  const { data: products } = await supabaseAdmin
+    .from('products')
+    .select('code, name, variants:product_variants(size, current_stock)')
+    .eq('user_id', userId)
+    .order('code')
+
+  if (!products || products.length === 0) return 'No hay productos registrados.'
+
+  const critical: string[] = []
+  const low: string[] = []
+
+  for (const p of products) {
+    for (const v of (p.variants ?? []) as { size: string; current_stock: number }[]) {
+      if (v.current_stock === 0) {
+        critical.push(`🚨 ${p.code} talla ${v.size} — SIN STOCK`)
+      } else if (v.current_stock < 5) {
+        low.push(`⚠️ ${p.code} talla ${v.size} — ${v.current_stock} uds`)
+      }
+    }
+  }
+
+  if (critical.length === 0 && low.length === 0) return '✅ Todo el stock está en niveles normales.'
+
+  let res = `📊 *Reporte de stock crítico:*\n\n`
+  if (critical.length > 0) res += `*Sin stock:*\n${critical.join('\n')}\n\n`
+  if (low.length > 0) res += `*Stock bajo (<5 uds):*\n${low.join('\n')}`
+  return res
+}
+
 function formatHelp(): string {
   return (
     `📱 *Comandos disponibles:*\n\n` +
-    `• *P<código> <cantidad>* — Restar stock\n` +
-    `  Ej: P001 5\n` +
-    `  Con talla: P001 M 5\n\n` +
+    `• *- <código> <cantidad>* — Restar stock\n` +
+    `  Ej: - 001 5\n` +
+    `  Con talla: - 001 M 5\n\n` +
     `• *+ <código> <cantidad>* — Agregar stock\n` +
-    `  Ej: + P001 10\n` +
-    `  Con talla: + P001 M 10\n\n` +
+    `  Ej: + 001 10\n` +
+    `  Con talla: + 001 M 10\n\n` +
     `• *STOCK <código>* — Ver stock de un producto\n` +
-    `  Ej: STOCK P001\n\n` +
+    `  Ej: STOCK 001\n\n` +
     `• *LISTA* — Ver todos los productos\n\n` +
+    `• *BAJOS* — Ver productos con stock crítico\n\n` +
     `• *AYUDA* — Mostrar este mensaje`
   )
 }
 
-// Formato "P<code> [size] <quantity>"
-const SUBTRACT_RE = /^[Pp](\S+)\s+(.+)$/
+// "- <code> [size] <qty>"
+const SUBTRACT_RE = /^-\s+(\S+)\s+(.+)$/
 
 async function processCommand(message: string, userId: string): Promise<string> {
   const trimmed = message.trim()
 
-  // P<code> [size] <qty>  →  restar stock
-  const pMatch = trimmed.match(SUBTRACT_RE)
-  if (pMatch) {
-    const code = pMatch[1].toUpperCase()
-    const rest = pMatch[2].trim().split(/\s+/)
+  // - <code> [size] <qty>  →  restar stock
+  const minusMatch = trimmed.match(SUBTRACT_RE)
+  if (minusMatch) {
+    const code = minusMatch[1].toUpperCase()
+    const rest = minusMatch[2].trim().split(/\s+/)
 
     let size: string | null = null
     const quantityStr = rest[rest.length - 1]
@@ -181,7 +242,7 @@ async function processCommand(message: string, userId: string): Promise<string> 
 
     const quantity = parseInt(quantityStr, 10)
     if (isNaN(quantity) || quantity <= 0) {
-      return 'Cantidad inválida.\nUso: P<código> <cantidad>\nCon talla: P<código> <talla> <cantidad>'
+      return 'Cantidad inválida.\nUso: - <código> <cantidad>\nCon talla: - <código> <talla> <cantidad>'
     }
 
     return handleStockOperation(code, size, quantity, 'out', userId)
@@ -193,7 +254,6 @@ async function processCommand(message: string, userId: string): Promise<string> 
   switch (command) {
     case '+':
     case 'AGREGAR': {
-      // + <code> [size] <qty>
       if (parts.length < 3) {
         return 'Uso: + <código> <cantidad>\nCon talla: + <código> <talla> <cantidad>'
       }
@@ -212,13 +272,19 @@ async function processCommand(message: string, userId: string): Promise<string> 
     case 'STOCK':
     case 'CONSULTAR': {
       const code = parts[1]
-      if (!code) return 'Uso: STOCK <código>\nEj: STOCK P001'
+      if (!code) return 'Uso: STOCK <código>\nEj: STOCK 001'
       return handleStockQuery(code, userId)
     }
 
     case 'LISTA':
     case 'PRODUCTOS': {
       return handleListProducts(userId)
+    }
+
+    case 'BAJOS':
+    case 'CRITICO':
+    case 'ALERTAS': {
+      return handleLowStock(userId)
     }
 
     case 'AYUDA':
@@ -249,7 +315,13 @@ export async function GET(request: NextRequest) {
 // POST: Recibir mensajes entrantes
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    const rawBody = await request.text()
+
+    if (!await verifySignature(request, rawBody)) {
+      return new NextResponse('Unauthorized', { status: 401 })
+    }
+
+    const body = JSON.parse(rawBody)
     const entry: WhatsAppEntry = body.entry?.[0]
 
     if (!entry?.changes?.[0]?.value?.messages) {
@@ -257,8 +329,12 @@ export async function POST(request: NextRequest) {
     }
 
     const message = entry.changes[0].value.messages[0]
-    const userId = process.env.WHATSAPP_DEFAULT_USER_ID
 
+    if (!isAuthorizedSender(message.from)) {
+      return NextResponse.json({ status: 'ok' })
+    }
+
+    const userId = process.env.WHATSAPP_DEFAULT_USER_ID
     if (!userId) {
       console.error('WHATSAPP_DEFAULT_USER_ID not configured')
       return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })

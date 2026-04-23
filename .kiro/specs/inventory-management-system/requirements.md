@@ -15,7 +15,7 @@ Este documento define los requisitos para un sistema web de gestión de inventar
 - **Sesión**: Período de tiempo durante el cual un usuario está autenticado
 - **Base_de_Datos**: Sistema de almacenamiento Supabase
 - **Credenciales**: Email y contraseña utilizados para autenticación
-
+- **Seguridad**: revisar la seguridad del codigo
 ## Requisitos
 
 ### Requisito 1: Autenticación de Usuarios
