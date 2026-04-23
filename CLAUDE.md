@@ -127,3 +127,23 @@ Sólo dos variables públicas:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+## WhatsApp Integration
+
+Sistema de comandos vía WhatsApp Business API en `app/api/wsp/route.ts`.
+
+**Variables de entorno requeridas:**
+- `SUPABASE_SERVICE_ROLE_KEY` - clave de service role para operaciones admin
+- `WHATSAPP_ACCESS_TOKEN` - token de la API de WhatsApp
+- `WHATSAPP_PHONE_NUMBER_ID` - ID del número de teléfono
+- `WHATSAPP_VERIFY_TOKEN` - token para verificar el webhook
+- `WHATSAPP_DEFAULT_USER_ID` - usuario de Supabase que recibe los comandos
+
+**Comandos disponibles:**
+- `P<codigo> <cantidad>` - Restar stock (ej: `P001 5`)
+- `+ <codigo> <cantidad>` - Agregar stock (ej: `+ P001 10`)
+- `STOCK <codigo>` - Consultar stock de un producto
+- `LISTA` - Ver todos los productos
+- `AYUDA` - Mostrar ayuda
+
+El webhook procesa mensajes entrantes y responde automáticamente. Requiere configurar el webhook en Meta for Developers apuntando a `/api/wsp`.
