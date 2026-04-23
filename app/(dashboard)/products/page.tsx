@@ -454,8 +454,8 @@ function StockMovementModal({
           </div>
           {!isIn && commissionTotal > 0 && (
             <div className="px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800">
-              Comisión vendedor: <span className="font-semibold">{commissionTotal.toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 })}</span>
-              <span className="text-purple-500 ml-1">({qty} × ${target.productComision.toLocaleString('es-CL')})</span>
+              Comisión vendedor: <span className="font-semibold">{fmt(commissionTotal)}</span>
+              <span className="text-purple-500 ml-1">({qty} × {fmt(target.productComision)})</span>
             </div>
           )}
           <div className="flex gap-3 pt-2">

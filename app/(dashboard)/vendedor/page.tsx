@@ -78,26 +78,24 @@ export default function VendedorPage() {
   const lastPayment = payments[0] ?? null;
   const pendingFrom = lastPayment ? new Date(lastPayment.period_to) : null;
 
-  // Si el movimiento no tiene comisión guardada, la calcula del producto actual
   const effComm = (m: OutMovement) =>
     m.commission > 0 ? m.commission : (m.variant?.product?.comision ?? 0) * m.quantity;
 
-  const visible = movements.filter((m) => {
-    if (viewMode === 'pending') {
-      return pendingFrom ? new Date(m.created_at) > pendingFrom : true;
-    }
-    const from = new Date(dateFrom + 'T00:00:00');
-    const to = new Date(dateTo + 'T23:59:59');
-    return new Date(m.created_at) >= from && new Date(m.created_at) <= to;
-  });
-
-  const totalComision = visible.reduce((s, m) => s + effComm(m), 0);
-  const totalUnits = visible.reduce((s, m) => s + m.quantity, 0);
   const pendingMovements = movements.filter((m) =>
     pendingFrom ? new Date(m.created_at) > pendingFrom : true
   );
   const pendingTotal = pendingMovements.reduce((s, m) => s + effComm(m), 0);
 
+  const visible = viewMode === 'pending'
+    ? pendingMovements
+    : movements.filter((m) => {
+        const from = new Date(dateFrom + 'T00:00:00');
+        const to = new Date(dateTo + 'T23:59:59');
+        return new Date(m.created_at) >= from && new Date(m.created_at) <= to;
+      });
+
+  const totalComision = visible.reduce((s, m) => s + effComm(m), 0);
+  const totalUnits = visible.reduce((s, m) => s + m.quantity, 0);
 
   const startEdit = (m: OutMovement) => {
     setEditRow(m.id);
@@ -105,7 +103,7 @@ export default function VendedorPage() {
   };
 
   const saveCommission = async (id: string) => {
-    const val = parseInt(editVal) || 0;
+    const val = Math.min(Math.max(parseInt(editVal) || 0, 0), 2_000_000_000);
     setSaving(id);
     await supabase.from('stock_movements').update({ commission: val }).eq('id', id);
     setEditRow(null);

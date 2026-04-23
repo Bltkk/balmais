@@ -107,6 +107,18 @@ export default function RetornoPage() {
 
   const rows = filtered.map(calcProduct);
 
+  const totals = rows.reduce(
+    (acc, r) => ({
+      stock: acc.stock + r.stock,
+      revenue: acc.revenue + r.totalRevenue,
+      iva: acc.iva + r.totalIva,
+      cost: acc.cost + r.totalCost,
+      commission: acc.commission + r.totalCommission,
+      ret: acc.ret + r.totalReturn,
+    }),
+    { stock: 0, revenue: 0, iva: 0, cost: 0, commission: 0, ret: 0 }
+  );
+
   const exportCSV = () => {
     const ivaHeader = applyIva ? `;IVA/u (${ivaRate}%);IVA total` : '';
     const header = `Código;Producto;Stock;Precio venta${ivaHeader};Costo;Comisión/u;Margen/u;Margen %;Retorno total`;
@@ -126,18 +138,6 @@ export default function RetornoPage() {
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  const totals = rows.reduce(
-    (acc, r) => ({
-      stock: acc.stock + r.stock,
-      revenue: acc.revenue + r.totalRevenue,
-      iva: acc.iva + r.totalIva,
-      cost: acc.cost + r.totalCost,
-      commission: acc.commission + r.totalCommission,
-      ret: acc.ret + r.totalReturn,
-    }),
-    { stock: 0, revenue: 0, iva: 0, cost: 0, commission: 0, ret: 0 }
-  );
 
   return (
     <div className="space-y-6">
@@ -249,9 +249,7 @@ export default function RetornoPage() {
               className="w-full pl-8 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500"
             />
           </div>
-          <p className="text-xs text-gray-400">
-            Por unidad vendida. Podés ajustar individualmente en la tabla (varía entre $1.000 y $2.000).
-          </p>
+          <p className="text-xs text-gray-400">Por unidad vendida. Podés ajustar individualmente en la tabla.</p>
         </div>
       </div>
 

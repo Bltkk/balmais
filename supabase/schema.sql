@@ -162,6 +162,7 @@ CREATE INDEX IF NOT EXISTS idx_vp_user_id ON vendor_payments(user_id);
 -- ⚠️ En instalaciones existentes (sin re-ejecutar el script) correr:
 -- ALTER TABLE products ADD COLUMN IF NOT EXISTS comision INTEGER NOT NULL DEFAULT 0 CHECK (comision >= 0);
 -- ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS commission INTEGER NOT NULL DEFAULT 0 CHECK (commission >= 0);
+-- CREATE POLICY "movements_update_own" ON stock_movements FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 -- (luego pegar el bloque CREATE OR REPLACE FUNCTION y CREATE TABLE vendor_payments de arriba)
 
 -- -----------------------------------------------------------------------------
@@ -221,6 +222,9 @@ CREATE POLICY "movements_insert_own" ON stock_movements
       WHERE v.id = stock_movements.variant_id AND p.user_id = auth.uid()
     )
   );
+CREATE POLICY "movements_update_own" ON stock_movements
+  FOR UPDATE USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
 
 -- Vendor payments RLS ---------------------------------------------------------
 ALTER TABLE vendor_payments ENABLE ROW LEVEL SECURITY;
