@@ -1,64 +1,8 @@
-# Control Total
+# Balmais — Gestión de Inventario para Indumentaria
 
-Sistema de gestión de inventario para tiendas de ropa, con control de stock por talla, analíticas y reportes exportables.
+Sistema web mono-tenant para control de stock de ropa por talla, con historial de movimientos, analíticas, reportes exportables e integración con WhatsApp Business.
 
-**Desarrollado por Tracta — Gestión TI**
-
-**Demo en vivo:** https://balmais-opal.vercel.app
-
----
-
-## Vistas principales
-
-### Login
-- Acceso con email y contraseña
-- Sesión persistente — no requiere volver a entrar al cerrar el navegador
-- Cada usuario ve **solo su propio inventario** (aislamiento total por RLS)
-
----
-
-### Dashboard
-
-- 4 tarjetas: productos, stock total, valor inventario, movimientos del día
-- Filtro de período: **Semana / Mes / 3 meses / 1 año / Todo**
-- Toggle **Valor ($) / Unidades**
-- Gráfica de línea: Entradas (verde) vs Salidas (rojo)
-- Resumen del período: unidades y valor monetario + diferencia neta
-
----
-
-### Productos
-
-- Lista con búsqueda por código o nombre
-- Filas expandibles que muestran **stock por talla**
-- Botones `+` / `−` por talla para registrar entradas/salidas al instante
-- Crear, editar y eliminar productos
-
----
-
-### Nuevo Producto
-
-- Código, nombre, precio y descripción
-- Tallas dinámicas: agregar filas S, M, L, XL o cualquier denominación
-- Stock inicial por talla al momento de crear
-
----
-
-### Analíticas
-
-- Toggle **Linea / Barras**
-- 3 gráficas:
-  1. Movimientos en el tiempo (Entradas vs Salidas)
-  2. Movimientos por producto en el período seleccionado
-  3. Stock actual por producto en colores
-
----
-
-### Reportes
-
-- Historial completo: fecha, tipo, producto, talla, cantidad, stock final
-- Filtros por rango de fechas y tipo (Entrada / Salida / Todos)
-- Exportar a **CSV** compatible con Excel y Google Sheets
+**Demo en vivo:** [balmais-opal.vercel.app](https://balmais-opal.vercel.app)
 
 ---
 
@@ -66,12 +10,48 @@ Sistema de gestión de inventario para tiendas de ropa, con control de stock por
 
 | Capa | Tecnología |
 |---|---|
-| Frontend | Next.js 14 (App Router), React 18, TypeScript |
+| Framework | Next.js 14 (App Router) |
+| Lenguaje | TypeScript |
+| Base de datos | Supabase (PostgreSQL + Auth) |
 | Estilos | Tailwind CSS |
-| Backend / DB | Supabase (PostgreSQL + Auth) |
 | Gráficas | Recharts |
 | Validación | Zod |
 | Deploy | Vercel |
+
+---
+
+## Funcionalidades
+
+### Dashboard
+- Totales en tiempo real: productos, stock total, valor de inventario, movimientos del día
+- Gráfica de entradas vs salidas con filtros de período (semana / mes / 3 meses / año / todo)
+- Toggle entre vista de unidades y valor monetario
+
+### Productos
+- Lista con búsqueda por código o nombre
+- Filas expandibles con stock desglosado por talla
+- Botones `+` / `−` por talla para registrar movimientos al instante
+- Alta con tallas dinámicas y stock inicial
+- Edición y eliminación con cascade
+
+### Analíticas
+- Gráficas de línea y barras: movimientos en el tiempo, por producto y stock actual
+
+### Reportes
+- Historial completo con columna de talla
+- Filtros por rango de fechas y tipo (Entrada / Salida / Todos)
+- Exportación a CSV compatible con Excel y Google Sheets
+
+### WhatsApp Business
+Comandos por mensaje directo para operar el inventario sin abrir la web:
+
+| Comando | Descripción |
+|---|---|
+| `P<codigo> <cantidad>` | Restar stock — ej: `P001 5` |
+| `+ <codigo> <cantidad>` | Sumar stock — ej: `+ P001 10` |
+| `STOCK <codigo>` | Consultar stock de un producto |
+| `LISTA` | Ver todos los productos |
+| `AYUDA` | Mostrar comandos disponibles |
 
 ---
 
@@ -79,44 +59,59 @@ Sistema de gestión de inventario para tiendas de ropa, con control de stock por
 
 ```
 products          → código, nombre, precio, user_id
-product_variants  → (product_id, talla, stock_actual)
-stock_movements   → (variant_id, tipo in|out, cantidad, stock_final, fecha)
+product_variants  → product_id, talla, stock_actual   (UNIQUE por talla)
+stock_movements   → variant_id, tipo in|out, cantidad, stock_after, fecha
 ```
 
-- El stock real vive en `product_variants.current_stock`
-- Cada entrada/salida queda registrada en `stock_movements` con timestamp
-- RLS activo: cada usuario accede únicamente a sus datos
-- `register_stock_movement` es el único camino válido para modificar stock (atómico y validado)
+El stock se modifica exclusivamente mediante la función `register_stock_movement` (RPC), que garantiza atomicidad, previene stock negativo y valida ownership mediante RLS.
 
 ---
+
+## Instalación local
+
+```bash
+git clone https://github.com/Bltkk/balmais.git
+cd balmais
+npm install
+cp .env.local.example .env.local
+# Completar las variables con tus credenciales de Supabase
+npm run dev
+```
+
+Acceso en `http://localhost:3000`
 
 ## Variables de entorno
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+# Supabase (requeridas)
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+
+# Solo para la integración WhatsApp (opcional)
+SUPABASE_SERVICE_ROLE_KEY=
+WHATSAPP_ACCESS_TOKEN=
+WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_VERIFY_TOKEN=
+WHATSAPP_DEFAULT_USER_ID=
 ```
 
 ---
 
-## Correr localmente
+## Seguridad
 
-```bash
-npm install
-npm run dev   # http://localhost:3000
-```
-
----
-
-## Seguridad aplicada
-
-- Row Level Security (RLS) en las 3 tablas de datos
-- Headers HTTP: CSP, HSTS, X-Frame-Options DENY, Referrer-Policy
-- REVOKE ALL al rol `anon`, permisos mínimos a `authenticated`
+- Row Level Security (RLS) activo en las 3 tablas: cada usuario accede únicamente a sus datos
+- Headers HTTP: CSP, HSTS, X-Frame-Options, Referrer-Policy
+- `REVOKE ALL` al rol `anon`, permisos mínimos a `authenticated`
 - CHECK constraints en base de datos (formato código, precio máximo, longitud notas)
 - Protección contra CSV injection en exportaciones
 - `search_path = ''` en funciones PL/pgSQL
 
 ---
 
-*by Tracta · 2026*
+## Comandos
+
+```bash
+npm run dev     # Servidor de desarrollo en :3000
+npm run build   # Build de producción
+npm start       # Servidor de producción
+```
