@@ -106,6 +106,7 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>('30d');
   const [metric, setMetric] = useState<Metric>('value');
   const [totals, setTotals] = useState({ products: 0, stock: 0, value: 0, todayMovements: 0, returnPotential: 0 });
+  const [todayData, setTodayData] = useState({ inQty: 0, outQty: 0, inVal: 0, outVal: 0 });
   const [movements, setMovements] = useState<RawMovement[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -148,13 +149,23 @@ export default function DashboardPage() {
 
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-    const { count } = await supabase
+    const { data: todayMvs } = await supabase
       .from('stock_movements')
-      .select('id', { count: 'exact', head: true })
+      .select('type, quantity, variant:product_variants(product:products(price))')
       .eq('user_id', user.id)
       .gte('created_at', startOfDay.toISOString());
 
-    setTotals({ products: prodList.length, stock, value, todayMovements: count || 0, returnPotential });
+    const todaySummary = ((todayMvs || []) as unknown as { type: string; quantity: number; variant: { product: { price: number } } | null }[]).reduce(
+      (acc, m) => {
+        const val = m.quantity * (m.variant?.product?.price ?? 0);
+        if (m.type === 'in') { acc.inQty += m.quantity; acc.inVal += val; }
+        else { acc.outQty += m.quantity; acc.outVal += val; }
+        return acc;
+      },
+      { inQty: 0, outQty: 0, inVal: 0, outVal: 0 }
+    );
+    setTodayData(todaySummary);
+    setTotals({ products: prodList.length, stock, value, todayMovements: (todayMvs?.length || 0), returnPotential });
   };
 
   const loadMovements = useCallback(async (p: Period) => {
@@ -211,6 +222,38 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* Hoy provisional */}
+      {(todayData.inQty > 0 || todayData.outQty > 0) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse inline-block" />
+            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Hoy — provisional</p>
+            <p className="text-xs text-amber-500 ml-auto">Se consolida en analíticas a medianoche</p>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-green-700 font-medium">Entradas</p>
+              <p className="text-xl font-bold text-green-800">{todayData.inQty} u.</p>
+              <p className="text-sm text-green-600">{fmt(todayData.inVal)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-red-700 font-medium">Salidas</p>
+              <p className="text-xl font-bold text-red-800">{todayData.outQty} u.</p>
+              <p className="text-sm text-red-600">{fmt(todayData.outVal)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 font-medium">Neto</p>
+              <p className={`text-xl font-bold ${todayData.inQty - todayData.outQty >= 0 ? 'text-slate-700' : 'text-red-600'}`}>
+                {todayData.inQty - todayData.outQty >= 0 ? '+' : ''}{todayData.inQty - todayData.outQty} u.
+              </p>
+              <p className={`text-sm ${todayData.inVal - todayData.outVal >= 0 ? 'text-slate-600' : 'text-red-500'}`}>
+                {fmt(Math.abs(todayData.inVal - todayData.outVal))}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Retorno Potencial */}
       {totals.returnPotential > 0 && (

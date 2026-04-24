@@ -152,6 +152,9 @@ export default function AnalyticsPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
 
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
     const from = getFromDate(p);
     const { from: prevFrom, to: prevTo } = getPrevDateRange(p);
 
@@ -160,6 +163,7 @@ export default function AnalyticsPage() {
         .from('stock_movements')
         .select('type, quantity, created_at, variant:product_variants(size, product:products(id, name, price, cost))')
         .eq('user_id', user.id)
+        .lt('created_at', startOfToday.toISOString())
         .order('created_at', { ascending: true });
       if (gte) q = q.gte('created_at', gte.toISOString());
       if (lte) q = q.lte('created_at', lte.toISOString());
@@ -434,6 +438,10 @@ export default function AnalyticsPage() {
           </button>
         </div>
       </div>
+
+      <p className="text-xs text-gray-400 -mt-2">
+        Datos confirmados hasta ayer · Los movimientos de hoy se consolidan a medianoche
+      </p>
 
       {selectedProduct && (
         <div className="flex items-center gap-3 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">

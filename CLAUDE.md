@@ -95,6 +95,26 @@ padre.
   inicial de una talla agregada acá NO genera un `stock_movement` —
   para auditoría de stock correcta, usar siempre la RPC desde la lista.
 
+- Validación de nombre duplicado en `/products/new`: antes de insertar,
+  se verifica con `.ilike('name', ...)` si ya existe un producto con el
+  mismo nombre. Si existe, muestra un banner amber con link a la lista
+  y opción "Crear de todos modos" (`skipDuplicateCheck`).
+
+## Modelo de datos de analíticas (cierre diario)
+
+Las analíticas usan un modelo de **día confirmado**: los movimientos del
+día en curso se excluyen de todos los gráficos y KPIs de
+`app/(dashboard)/analytics/page.tsx`. La query `movQuery` lleva siempre
+`.lt('created_at', startOfToday.toISOString())`.
+
+Esto evita que errores corregidos el mismo día ensucien las métricas
+históricas. A medianoche, el día cierra automáticamente y sus movimientos
+pasan a ser historial permanente — sin ninguna acción manual.
+
+El dashboard (`app/(dashboard)/page.tsx`) muestra una tarjeta
+**"Hoy — provisional"** (amber) con entradas, salidas y neto del día en
+curso en tiempo real. Solo aparece si hay al menos un movimiento hoy.
+
 Pendiente:
 
 - Editar `current_stock` directamente de una variante ya existente (se
