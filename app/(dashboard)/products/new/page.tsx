@@ -17,6 +17,8 @@ export default function NewProductPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [duplicateProduct, setDuplicateProduct] = useState<{ id: string; name: string; code: string } | null>(null);
+  const [skipDuplicateCheck, setSkipDuplicateCheck] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [formData, setFormData] = useState({
     code: '',
@@ -61,6 +63,21 @@ export default function NewProductPage() {
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setError('Sesión no válida.'); setLoading(false); return; }
+
+    if (!skipDuplicateCheck) {
+      const { data: existing } = await supabase
+        .from('products')
+        .select('id, name, code')
+        .eq('user_id', user.id)
+        .ilike('name', formData.name.trim())
+        .maybeSingle();
+
+      if (existing) {
+        setDuplicateProduct(existing);
+        setLoading(false);
+        return;
+      }
+    }
 
     const { data: product, error: insertError } = await supabase
       .from('products')
@@ -135,6 +152,32 @@ export default function NewProductPage() {
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
             <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
+
+        {duplicateProduct && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-300 rounded-lg">
+            <p className="text-sm font-semibold text-amber-800">
+              Ya existe un producto con ese nombre: &quot;{duplicateProduct.name}&quot; (código: {duplicateProduct.code})
+            </p>
+            <p className="text-sm text-amber-700 mt-1">
+              Si querés agregar stock, usá el botón <strong>+</strong> en la lista de productos.
+            </p>
+            <div className="flex gap-3 mt-3">
+              <Link
+                href="/products"
+                className="text-sm font-medium text-amber-900 underline hover:text-amber-700"
+              >
+                Ir a la lista de productos →
+              </Link>
+              <button
+                type="button"
+                onClick={() => { setDuplicateProduct(null); setSkipDuplicateCheck(true); }}
+                className="text-sm text-amber-600 hover:text-amber-800"
+              >
+                Crear de todos modos
+              </button>
+            </div>
           </div>
         )}
 
