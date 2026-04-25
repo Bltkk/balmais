@@ -298,6 +298,35 @@ export default function AnalyticsPage() {
     });
   })();
 
+  // ── Evolución del stock ──────────────────────────────────────────────────
+  const stockEvolutionData = (() => {
+    const from = getFromDate(period);
+    const fallbackStart = filteredMovements.length > 0
+      ? new Date(Math.min(...filteredMovements.map((m) => new Date(m.created_at).getTime())))
+      : undefined;
+    const allBuckets = generateAllBuckets(from, period, fallbackStart);
+    if (allBuckets.length === 0) return [];
+
+    const endStock = selectedProduct
+      ? selectedProduct.stock
+      : productStocks.reduce((s, p) => s + p.stock, 0);
+
+    const totalIn  = filteredMovements.filter((m) => m.type === 'in').reduce((s, m) => s + m.quantity, 0);
+    const totalOut = filteredMovements.filter((m) => m.type === 'out').reduce((s, m) => s + m.quantity, 0);
+
+    const netByBucket = new Map<string, number>();
+    for (const m of filteredMovements) {
+      const key = getBucketKey(new Date(m.created_at), period);
+      netByBucket.set(key, (netByBucket.get(key) ?? 0) + (m.type === 'in' ? m.quantity : -m.quantity));
+    }
+
+    let running = Math.max(0, endStock - totalIn + totalOut);
+    return allBuckets.map((label) => {
+      running = Math.max(0, running + (netByBucket.get(label) ?? 0));
+      return { label, Stock: running };
+    });
+  })();
+
   // ── Análisis ABC ─────────────────────────────────────────────────────────
   const abcData = (() => {
     if (selectedProductId) return [];
@@ -597,6 +626,38 @@ export default function AnalyticsPage() {
               </ResponsiveContainer>
             )}
           </div>
+
+          {/* ── Evolución del stock ── */}
+          {stockEvolutionData.length > 0 && (
+            <div className={cardBase}>
+              <h2 className="text-sm font-semibold text-gray-700 mb-1">
+                Evolución del stock{selectedProduct ? ` — ${selectedProduct.name}` : ''} · Unidades
+              </h2>
+              <p className="text-xs text-gray-400 mb-4">
+                Stock acumulado a lo largo del período — parte del stock inicial y sube o baja con cada movimiento.
+              </p>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={stockEvolutionData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  <Tooltip
+                    formatter={((v: number) => [`${v} u.`, 'Stock']) as any}
+                    contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="Stock"
+                    stroke="#6366f1"
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={{ r: 5, fill: '#6366f1' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {/* ── Análisis ABC ── */}
           {!selectedProductId && abcData.length > 0 && (
