@@ -15,6 +15,7 @@ type Metric = 'qty' | 'value';
 interface RawMovement {
   type: 'in' | 'out';
   quantity: number;
+  sale_price: number | null;
   created_at: string;
   variant: {
     size: string;
@@ -202,7 +203,7 @@ export default function AnalyticsPage() {
     const movQuery = (gte: Date | null, lte?: Date) => {
       let q = supabase
         .from('stock_movements')
-        .select('type, quantity, created_at, variant:product_variants(size, product:products(id, name, price, cost))')
+        .select('type, quantity, sale_price, created_at, variant:product_variants(size, product:products(id, name, price, cost))')
         .eq('user_id', user.id)
         .lt('created_at', startOfToday.toISOString())
         .order('created_at', { ascending: true });
@@ -280,10 +281,11 @@ export default function AnalyticsPage() {
     );
 
     for (const m of filteredMovements) {
-      const key   = getBucketKey(new Date(m.created_at), period);
-      const price = m.variant?.product?.price ?? 0;
-      const val   = metric === 'qty' ? m.quantity : m.quantity * price;
-      const entry = map.get(key) ?? { in: 0, out: 0 };
+      const key        = getBucketKey(new Date(m.created_at), period);
+      const fullPrice  = m.variant?.product?.price ?? 0;
+      const unitPrice  = m.type === 'out' ? (m.sale_price ?? fullPrice) : fullPrice;
+      const val        = metric === 'qty' ? m.quantity : m.quantity * unitPrice;
+      const entry      = map.get(key) ?? { in: 0, out: 0 };
       if (m.type === 'in') entry.in += val; else entry.out += val;
       map.set(key, entry);
     }
@@ -396,9 +398,10 @@ export default function AnalyticsPage() {
     if (selectedProductId) return [];
     const map = new Map<string, { in: number; out: number }>();
     for (const m of movements) {
-      const name  = m.variant?.product?.name ?? 'Desconocido';
-      const price = m.variant?.product?.price ?? 0;
-      const val   = metric === 'qty' ? m.quantity : m.quantity * price;
+      const name      = m.variant?.product?.name ?? 'Desconocido';
+      const fullPrice = m.variant?.product?.price ?? 0;
+      const unitPrice = m.type === 'out' ? (m.sale_price ?? fullPrice) : fullPrice;
+      const val       = metric === 'qty' ? m.quantity : m.quantity * unitPrice;
       const entry = map.get(name) ?? { in: 0, out: 0 };
       if (m.type === 'in') entry.in += val; else entry.out += val;
       map.set(name, entry);

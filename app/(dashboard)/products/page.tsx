@@ -11,6 +11,7 @@ interface MovementTarget {
   variant: ProductVariant;
   type: 'in' | 'out';
   productComision: number;
+  productPrice: number;
 }
 
 interface AdjustTarget {
@@ -307,12 +308,12 @@ export default function ProductsPage() {
                                           {!discontinued && (
                                             <>
                                               <button
-                                                onClick={() => setTarget({ productName: product.name, variant: v, type: 'in', productComision: product.comision ?? 0 })}
+                                                onClick={() => setTarget({ productName: product.name, variant: v, type: 'in', productComision: product.comision ?? 0, productPrice: product.price ?? 0 })}
                                                 className="w-7 h-7 flex items-center justify-center bg-green-100 text-green-700 rounded hover:bg-green-200"
                                                 title="Entrada de stock"
                                               >+</button>
                                               <button
-                                                onClick={() => setTarget({ productName: product.name, variant: v, type: 'out', productComision: product.comision ?? 0 })}
+                                                onClick={() => setTarget({ productName: product.name, variant: v, type: 'out', productComision: product.comision ?? 0, productPrice: product.price ?? 0 })}
                                                 disabled={v.current_stock === 0}
                                                 className="w-7 h-7 flex items-center justify-center bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-40 disabled:cursor-not-allowed"
                                                 title="Salida de stock"
@@ -392,6 +393,7 @@ function StockMovementModal({
   onSuccess: () => void;
 }) {
   const [quantity, setQuantity] = useState('1');
+  const [salePrice, setSalePrice] = useState(String(target.productPrice));
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -400,13 +402,20 @@ function StockMovementModal({
   const max = target.variant.current_stock;
 
   const qty = parseInt(quantity, 10) || 0;
-  const commissionTotal = !isIn && target.productComision > 0 ? target.productComision * qty : 0;
+  const salePriceNum = parseFloat(salePrice) || 0;
+  const hasDiscount = !isIn && salePriceNum < target.productPrice;
+  const discountFactor = hasDiscount ? 0.8 : 1;
+  const commissionTotal = !isIn && target.productComision > 0
+    ? Math.round(target.productComision * qty * discountFactor)
+    : 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     if (isNaN(qty) || qty <= 0) { setError('La cantidad debe ser mayor a 0'); return; }
     if (!isIn && qty > max) { setError(`Stock insuficiente (disponible: ${max})`); return; }
+    if (!isIn && salePriceNum <= 0) { setError('El precio de venta debe ser mayor a 0'); return; }
+    if (!isIn && salePriceNum > target.productPrice) { setError(`El precio no puede ser mayor al precio lleno (${fmt(target.productPrice)})`); return; }
 
     setSubmitting(true);
     const { error: rpcErr } = await supabase.rpc('register_stock_movement', {
@@ -415,6 +424,7 @@ function StockMovementModal({
       p_quantity: qty,
       p_notes: notes || null,
       p_commission: commissionTotal,
+      p_sale_price: !isIn && salePriceNum !== target.productPrice ? salePriceNum : null,
     });
     if (rpcErr) { setError(rpcErr.message); setSubmitting(false); return; }
     onSuccess();
@@ -444,6 +454,28 @@ function StockMovementModal({
               autoFocus required
             />
           </div>
+          {!isIn && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Precio de venta *
+                <span className="text-gray-400 font-normal ml-2">(precio lleno: {fmt(target.productPrice)})</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <input
+                  type="number" min="1" max={target.productPrice} step="1"
+                  value={salePrice} onChange={(e) => setSalePrice(e.target.value)}
+                  className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-slate-500 focus:border-slate-500"
+                  required
+                />
+              </div>
+              {hasDiscount && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Precio con descuento — la comisión del vendedor se reduce un 20%
+                </p>
+              )}
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Nota (opcional)</label>
             <input
@@ -455,7 +487,9 @@ function StockMovementModal({
           {!isIn && commissionTotal > 0 && (
             <div className="px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800">
               Comisión vendedor: <span className="font-semibold">{fmt(commissionTotal)}</span>
-              <span className="text-purple-500 ml-1">({qty} × {fmt(target.productComision)})</span>
+              <span className="text-purple-500 ml-1">
+                ({qty} × {fmt(target.productComision)}{hasDiscount ? ' × 80%' : ''})
+              </span>
             </div>
           )}
           <div className="flex gap-3 pt-2">

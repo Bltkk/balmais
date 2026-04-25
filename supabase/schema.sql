@@ -52,6 +52,7 @@ CREATE TABLE stock_movements (
   stock_after INTEGER NOT NULL CHECK (stock_after >= 0),
   notes       TEXT,
   commission  INTEGER      NOT NULL DEFAULT 0 CHECK (commission >= 0),
+  sale_price  DECIMAL(10,2),   -- precio real de venta (null = precio lleno)
   user_id     UUID NOT NULL REFERENCES auth.users(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -89,15 +90,19 @@ CREATE TRIGGER update_products_updated_at
 --    supabase.rpc('register_stock_movement', {
 --      p_variant_id: <uuid>, p_type: 'in'|'out',
 --      p_quantity: <int>,    p_notes: <text|null>,
---      p_commission: <int|0>
+--      p_commission: <int|0>, p_sale_price: <decimal|null>
 --    })
+-- Migración en instalaciones existentes (sin re-correr schema completo):
+--   ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS sale_price DECIMAL(10,2);
+--   (luego ejecutar solo el CREATE OR REPLACE FUNCTION de abajo)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION register_stock_movement(
   p_variant_id UUID,
   p_type       VARCHAR,
   p_quantity   INTEGER,
-  p_notes      TEXT    DEFAULT NULL,
-  p_commission INTEGER DEFAULT 0
+  p_notes      TEXT           DEFAULT NULL,
+  p_commission INTEGER        DEFAULT 0,
+  p_sale_price DECIMAL(10,2)  DEFAULT NULL
 )
 RETURNS stock_movements
 LANGUAGE plpgsql
@@ -138,8 +143,8 @@ BEGIN
 
   UPDATE product_variants SET current_stock = v_new_stock WHERE id = p_variant_id;
 
-  INSERT INTO stock_movements (variant_id, type, quantity, stock_after, notes, commission, user_id)
-  VALUES (p_variant_id, p_type, p_quantity, v_new_stock, p_notes, p_commission, auth.uid())
+  INSERT INTO stock_movements (variant_id, type, quantity, stock_after, notes, commission, sale_price, user_id)
+  VALUES (p_variant_id, p_type, p_quantity, v_new_stock, p_notes, p_commission, p_sale_price, auth.uid())
   RETURNING * INTO v_movement;
 
   RETURN v_movement;

@@ -9,10 +9,15 @@ interface MovementRow {
   product: string;
   product_code: string;
   size: string;
-  quantity: number; // firmado: negativo para ajuste a la baja
+  quantity: number;
   stock_after: number;
+  sale_price: number | null;
+  commission: number;
   date: string;
 }
+
+const fmt = (n: number) =>
+  n.toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
 
 export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('');
@@ -34,7 +39,7 @@ export default function ReportsPage() {
 
       let query = supabase
         .from('stock_movements')
-        .select('id, type, quantity, stock_after, created_at, variant:product_variants(size, product:products(name, code))')
+        .select('id, type, quantity, stock_after, sale_price, commission, created_at, variant:product_variants(size, product:products(name, code))')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
@@ -58,6 +63,8 @@ export default function ReportsPage() {
           size: m.variant?.size || '',
           quantity: m.quantity,
           stock_after: m.stock_after,
+          sale_price: m.sale_price ?? null,
+          commission: m.commission ?? 0,
           date: new Date(m.created_at).toLocaleString('es'),
         }))
       );
@@ -89,7 +96,7 @@ export default function ReportsPage() {
   };
 
   const exportCSV = () => {
-    const header = ['Fecha', 'Tipo', 'Código', 'Producto', 'Talla', 'Cantidad', 'Stock Final'];
+    const header = ['Fecha', 'Tipo', 'Código', 'Producto', 'Talla', 'Cantidad', 'Precio venta', 'Comisión', 'Stock Final'];
     const rows = movements.map((m) => [
       m.date,
       m.type === 'in' ? 'Entrada' : m.type === 'out' ? 'Salida' : m.quantity > 0 ? 'Ajuste ▲' : 'Ajuste ▼',
@@ -97,6 +104,8 @@ export default function ReportsPage() {
       m.product,
       m.size,
       m.quantity.toString(),
+      m.type === 'out' && m.sale_price !== null ? m.sale_price.toString() : '',
+      m.type === 'out' && m.commission > 0 ? m.commission.toString() : '',
       m.stock_after.toString(),
     ]);
 
@@ -241,6 +250,8 @@ export default function ReportsPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Producto</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Talla</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cantidad</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Precio venta</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Comisión</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Stock Final</th>
                 </tr>
               </thead>
@@ -275,6 +286,16 @@ export default function ReportsPage() {
                           {m.quantity > 0 ? '+' : ''}{m.quantity}
                         </span>
                       )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                      {m.type === 'out' && m.sale_price !== null
+                        ? <span className={m.sale_price !== null ? 'text-amber-600 font-medium' : ''}>{fmt(m.sale_price)}</span>
+                        : <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                      {m.type === 'out' && m.commission > 0
+                        ? <span className="text-purple-700 font-medium">{fmt(m.commission)}</span>
+                        : <span className="text-gray-400">—</span>}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">{m.stock_after}</td>
                   </tr>
