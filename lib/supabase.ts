@@ -11,11 +11,14 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// Admin client for server-side operations (webhooks, API routes)
-export const supabaseAdmin: SupabaseClient = createClient(
-  supabaseUrl,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Admin client — lazy para evitar errores en build time (la key es solo runtime)
+let _adminClient: SupabaseClient | null = null;
+export function getSupabaseAdmin(): SupabaseClient {
+  if (!_adminClient) {
+    _adminClient = createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  }
+  return _adminClient;
+}
 
 const AUTH_COOKIE = 'sb-auth';
 const COOKIE_MAX_AGE_DAYS = 7;
