@@ -81,8 +81,10 @@ function generateAllBuckets(from: Date | null, period: Period, fallbackStart?: D
   yesterday.setHours(0, 0, 0, 0);
   yesterday.setDate(yesterday.getDate() - 1);
 
-  const start = from ?? fallbackStart;
-  if (!start) return [];
+  const periodStart = from ?? fallbackStart;
+  if (!periodStart) return [];
+  // Arranca desde el primer movimiento real si es posterior al inicio del período
+  const start = fallbackStart && fallbackStart > periodStart ? fallbackStart : periodStart;
 
   const buckets: string[] = [];
   const seen = new Set<string>();
@@ -135,12 +137,11 @@ const OUT_COLOR = '#f43f5e';  // rose   — salidas
 
 // ─── KPI Card ───────────────────────────────────────────────────────────────
 function KpiCard({
-  label, value, sub, icon, gradient, delta,
+  label, value, sub, gradient, delta,
 }: {
   label: string;
   value: string;
   sub?: string;
-  icon: string;
   gradient: string;
   delta?: { value: number; label: string };
 }) {
@@ -148,7 +149,6 @@ function KpiCard({
     <div className={`rounded-2xl p-5 text-white ${gradient} shadow-md`}>
       <div className="flex items-start justify-between">
         <p className="text-xs font-semibold uppercase tracking-widest opacity-80">{label}</p>
-        <span className="text-2xl opacity-90">{icon}</span>
       </div>
       <p className="text-3xl font-extrabold mt-2 leading-none">{value}</p>
       {sub && <p className="text-xs mt-1 opacity-70">{sub}</p>}
@@ -558,7 +558,6 @@ export default function AnalyticsPage() {
               label="Salidas en período"
               value={`${totalOutQty} u.`}
               sub={`Entradas: ${totalInQty} u.`}
-              icon="📦"
               gradient="bg-gradient-to-br from-indigo-500 to-violet-600"
               delta={deltaSalidas !== null ? { value: deltaSalidas, label: 'vs período ant.' } : undefined}
             />
@@ -566,7 +565,6 @@ export default function AnalyticsPage() {
               label="Rotación"
               value={rotacion !== null ? `${rotacion.toFixed(2)}x` : '—'}
               sub={rotacion !== null ? (rotacion >= 1 ? 'Buen ritmo' : 'Stock lento') : 'Sin stock'}
-              icon="🔄"
               gradient={rotacion !== null && rotacion >= 1
                 ? 'bg-gradient-to-br from-emerald-400 to-teal-600'
                 : 'bg-gradient-to-br from-amber-400 to-orange-500'}
@@ -575,7 +573,6 @@ export default function AnalyticsPage() {
               label="Días de inventario"
               value={diasInventario !== null ? `${diasInventario} días` : '—'}
               sub={diasInventario !== null ? (diasInventario <= 30 ? 'Restock pronto' : 'Stock suficiente') : 'Sin ventas'}
-              icon="📅"
               gradient={diasInventario !== null && diasInventario <= 30
                 ? 'bg-gradient-to-br from-rose-400 to-pink-600'
                 : 'bg-gradient-to-br from-sky-400 to-cyan-600'}
@@ -586,7 +583,6 @@ export default function AnalyticsPage() {
                 ? `${Math.round((totalOutQty / (currentStock + totalOutQty)) * 100)}%`
                 : '—'}
               sub="del inventario disponible"
-              icon="📊"
               gradient="bg-gradient-to-br from-fuchsia-500 to-purple-700"
             />
           </div>

@@ -72,8 +72,9 @@ function generateAllBuckets(from: Date | null, period: Period, fallbackStart?: D
   yesterday.setHours(0, 0, 0, 0);
   yesterday.setDate(yesterday.getDate() - 1);
 
-  const start = from ?? fallbackStart;
-  if (!start) return [];
+  const periodStart = from ?? fallbackStart;
+  if (!periodStart) return [];
+  const start = fallbackStart && fallbackStart > periodStart ? fallbackStart : periodStart;
 
   const buckets: string[] = [];
   const seen = new Set<string>();
