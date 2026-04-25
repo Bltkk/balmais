@@ -67,8 +67,57 @@ function getBucketKey(date: Date, period: Period): string {
   return date.toLocaleDateString('es-CL', { month: 'short', year: '2-digit' });
 }
 
+function generateAllBuckets(from: Date | null, period: Period, fallbackStart?: Date): string[] {
+  const yesterday = new Date();
+  yesterday.setHours(0, 0, 0, 0);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const start = from ?? fallbackStart;
+  if (!start) return [];
+
+  const buckets: string[] = [];
+  const seen = new Set<string>();
+
+  if (period === '7d' || period === '30d') {
+    const cur = new Date(start);
+    cur.setHours(0, 0, 0, 0);
+    while (cur <= yesterday) {
+      const key = cur.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' });
+      if (!seen.has(key)) { buckets.push(key); seen.add(key); }
+      cur.setDate(cur.getDate() + 1);
+    }
+  } else if (period === '90d') {
+    const cur = new Date(start);
+    cur.setHours(0, 0, 0, 0);
+    cur.setDate(cur.getDate() - cur.getDay());
+    while (cur <= yesterday) {
+      const key = cur.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' });
+      if (!seen.has(key)) { buckets.push(key); seen.add(key); }
+      cur.setDate(cur.getDate() + 7);
+    }
+  } else {
+    const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+    const endMonth = new Date(yesterday.getFullYear(), yesterday.getMonth(), 1);
+    while (cur <= endMonth) {
+      const key = cur.toLocaleDateString('es-CL', { month: 'short', year: '2-digit' });
+      if (!seen.has(key)) { buckets.push(key); seen.add(key); }
+      cur.setMonth(cur.getMonth() + 1);
+    }
+  }
+
+  return buckets;
+}
+
 function buildChart(movements: RawMovement[], period: Period, metric: Metric): ChartPoint[] {
-  const map = new Map<string, { in: number; out: number }>();
+  const from = getFromDate(period);
+  const fallbackStart = movements.length > 0
+    ? new Date(Math.min(...movements.map((m) => new Date(m.created_at).getTime())))
+    : undefined;
+  const allBuckets = generateAllBuckets(from, period, fallbackStart);
+
+  const map = new Map<string, { in: number; out: number }>(
+    allBuckets.map((b) => [b, { in: 0, out: 0 }])
+  );
 
   for (const m of movements) {
     const key = getBucketKey(new Date(m.created_at), period);
@@ -80,11 +129,14 @@ function buildChart(movements: RawMovement[], period: Period, metric: Metric): C
     map.set(key, entry);
   }
 
-  return Array.from(map.entries()).map(([label, v]) => ({
-    label,
-    Entradas: Math.round(v.in * 100) / 100,
-    Salidas: Math.round(v.out * 100) / 100,
-  }));
+  return allBuckets.map((label) => {
+    const v = map.get(label) ?? { in: 0, out: 0 };
+    return {
+      label,
+      Entradas: Math.round(v.in * 100) / 100,
+      Salidas:  Math.round(v.out * 100) / 100,
+    };
+  });
 }
 
 function buildSummary(movements: RawMovement[]): PeriodSummary {
