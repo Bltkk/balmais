@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHmac, timingSafeEqual } from 'crypto'
-import { getSupabaseAdmin } from '@/lib/supabase'
+import { getSupabaseAdmin } from '@/lib/supabase-admin'
 
 async function verifySignature(request: NextRequest, rawBody: string): Promise<boolean> {
   const secret = process.env.WHATSAPP_APP_SECRET
@@ -15,9 +15,11 @@ async function verifySignature(request: NextRequest, rawBody: string): Promise<b
   }
 }
 
+const LOW_STOCK_THRESHOLD = 5
+
 function isAuthorizedSender(from: string): boolean {
   const whitelist = process.env.WHATSAPP_ALLOWED_NUMBERS
-  if (!whitelist) return true // si no hay whitelist, acepta todos
+  if (!whitelist || whitelist.trim() === '') return true // sin whitelist, todos pueden usar el bot
   return whitelist.split(',').map(n => n.trim()).includes(from)
 }
 
@@ -50,7 +52,7 @@ async function sendWhatsAppMessage(to: string, text: string) {
     return
   }
 
-  await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+  const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
@@ -63,6 +65,9 @@ async function sendWhatsAppMessage(to: string, text: string) {
       text: { body: text },
     }),
   })
+  if (!res.ok) {
+    console.error('WhatsApp API error:', await res.json())
+  }
 }
 
 async function findProductByCode(code: string, userId: string) {
@@ -135,7 +140,7 @@ async function handleStockOperation(
   if (type === 'out') {
     if (data.stock_after === 0) {
       msg += `\n\n🚨 *QUIEBRE DE STOCK*\n${product.name} talla ${variant.size} quedó sin unidades.`
-    } else if (data.stock_after < 5) {
+    } else if (data.stock_after < LOW_STOCK_THRESHOLD) {
       msg += `\n\n⚠️ *Stock bajo* — quedan solo ${data.stock_after} unidades.`
     }
   }
@@ -152,14 +157,16 @@ async function handleStockQuery(code: string, userId: string): Promise<string> {
 
   let res = `📦 ${product.name} (${code})\nPrecio: $${product.price}\n\nStock por talla:\n`
   variants.forEach((v: { size: string; current_stock: number }) => {
-    const icon = v.current_stock === 0 ? '❌' : v.current_stock < 5 ? '⚠️' : '✅'
+    const icon = v.current_stock === 0 ? '❌' : v.current_stock < LOW_STOCK_THRESHOLD ? '⚠️' : '✅'
     res += `${icon} ${v.size}: ${v.current_stock}\n`
   })
   res += `\n📊 Total: ${total} unidades`
   return res
 }
 
-async function handleListProducts(userId: string): Promise<string> {
+const LISTA_PAGE_SIZE = 8
+
+async function handleListProducts(userId: string, page = 1): Promise<string> {
   const { data: products } = await getSupabaseAdmin()
     .from('products')
     .select('*, variants:product_variants(current_stock)')
@@ -168,12 +175,17 @@ async function handleListProducts(userId: string): Promise<string> {
 
   if (!products || products.length === 0) return 'No hay productos registrados.'
 
-  let res = `📋 Productos (${products.length}):\n\n`
-  products.slice(0, 10).forEach((p: { code: string; name: string; variants?: { current_stock: number }[] }) => {
+  const totalPages = Math.ceil(products.length / LISTA_PAGE_SIZE)
+  const safePage = Math.min(Math.max(page, 1), totalPages)
+  const start = (safePage - 1) * LISTA_PAGE_SIZE
+  const slice = products.slice(start, start + LISTA_PAGE_SIZE)
+
+  let res = `📋 Productos (${products.length}) — Pág ${safePage}/${totalPages}:\n\n`
+  slice.forEach((p: { code: string; name: string; variants?: { current_stock: number }[] }) => {
     const total = (p.variants ?? []).reduce((s, v) => s + v.current_stock, 0)
     res += `• ${p.code} — ${p.name}: ${total} uds\n`
   })
-  if (products.length > 10) res += `\n...y ${products.length - 10} más`
+  if (safePage < totalPages) res += `\nEscribí *LISTA ${safePage + 1}* para ver más.`
   return res
 }
 
@@ -193,7 +205,7 @@ async function handleLowStock(userId: string): Promise<string> {
     for (const v of (p.variants ?? []) as { size: string; current_stock: number }[]) {
       if (v.current_stock === 0) {
         critical.push(`🚨 ${p.code} talla ${v.size} — SIN STOCK`)
-      } else if (v.current_stock < 5) {
+      } else if (v.current_stock < LOW_STOCK_THRESHOLD) {
         low.push(`⚠️ ${p.code} talla ${v.size} — ${v.current_stock} uds`)
       }
     }
@@ -218,7 +230,8 @@ function formatHelp(): string {
     `  Con talla: + 001 M 10\n\n` +
     `• *STOCK <código>* — Ver stock de un producto\n` +
     `  Ej: STOCK 001\n\n` +
-    `• *LISTA* — Ver todos los productos\n\n` +
+    `• *LISTA* — Ver productos (pág 1)\n` +
+    `  Con página: LISTA 2, LISTA 3...\n\n` +
     `• *BAJOS* — Ver productos con stock crítico\n\n` +
     `• *AYUDA* — Mostrar este mensaje`
   )
@@ -278,7 +291,8 @@ async function processCommand(message: string, userId: string): Promise<string> 
 
     case 'LISTA':
     case 'PRODUCTOS': {
-      return handleListProducts(userId)
+      const page = parts[1] ? parseInt(parts[1], 10) : 1
+      return handleListProducts(userId, isNaN(page) ? 1 : page)
     }
 
     case 'BAJOS':
