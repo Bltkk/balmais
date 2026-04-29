@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -11,14 +11,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// Admin client — lazy para evitar errores en build time (la key es solo runtime)
-let _adminClient: SupabaseClient | null = null;
-export function getSupabaseAdmin(): SupabaseClient {
-  if (!_adminClient) {
-    _adminClient = createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-  }
-  return _adminClient;
-}
+// getSupabaseAdmin fue movido a lib/supabase-admin.ts (solo servidor)
 
 const AUTH_COOKIE = 'sb-auth';
 const COOKIE_MAX_AGE_DAYS = 7;
@@ -26,7 +19,7 @@ const COOKIE_MAX_AGE_DAYS = 7;
 export function setAuthCookie() {
   const expires = new Date();
   expires.setDate(expires.getDate() + COOKIE_MAX_AGE_DAYS);
-  document.cookie = `${AUTH_COOKIE}=1; path=/; expires=${expires.toUTCString()}; SameSite=Lax`;
+  document.cookie = `${AUTH_COOKIE}=1; path=/; expires=${expires.toUTCString()}; SameSite=Lax; Secure`;
 }
 
 export function clearAuthCookie() {

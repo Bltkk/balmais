@@ -160,6 +160,8 @@ export default function DashboardPage() {
   const [metric, setMetric] = useState<Metric>('value');
   const [totals, setTotals] = useState({ products: 0, stock: 0, value: 0, todayMovements: 0, returnPotential: 0 });
   const [todayData, setTodayData] = useState({ inQty: 0, outQty: 0, inVal: 0, outVal: 0 });
+  const [pendingCount, setPendingCount] = useState(0);
+  const [confirming, setConfirming] = useState(false);
   const [movements, setMovements] = useState<RawMovement[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -204,11 +206,12 @@ export default function DashboardPage() {
     startOfDay.setHours(0, 0, 0, 0);
     const { data: todayMvs } = await supabase
       .from('stock_movements')
-      .select('type, quantity, variant:product_variants(product:products(price))')
+      .select('type, quantity, confirmed, variant:product_variants(product:products(price))')
       .eq('user_id', user.id)
       .gte('created_at', startOfDay.toISOString());
 
-    const todaySummary = ((todayMvs || []) as unknown as { type: string; quantity: number; variant: { product: { price: number } } | null }[]).reduce(
+    const todayList = (todayMvs || []) as unknown as { type: string; quantity: number; confirmed: boolean; variant: { product: { price: number } } | null }[];
+    const todaySummary = todayList.reduce(
       (acc, m) => {
         const val = m.quantity * (m.variant?.product?.price ?? 0);
         if (m.type === 'in') { acc.inQty += m.quantity; acc.inVal += val; }
@@ -218,6 +221,7 @@ export default function DashboardPage() {
       { inQty: 0, outQty: 0, inVal: 0, outVal: 0 }
     );
     setTodayData(todaySummary);
+    setPendingCount(todayList.filter((m) => !m.confirmed).length);
     setTotals({ products: prodList.length, stock, value, todayMovements: (todayMvs?.length || 0), returnPotential });
   };
 
@@ -239,6 +243,22 @@ export default function DashboardPage() {
     setMovements((data as unknown as RawMovement[]) || []);
     setLoading(false);
   }, []);
+
+  const confirmToday = async () => {
+    setConfirming(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setConfirming(false); return; }
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    await supabase
+      .from('stock_movements')
+      .update({ confirmed: true })
+      .eq('user_id', user.id)
+      .gte('created_at', startOfDay.toISOString())
+      .eq('confirmed', false);
+    setConfirming(false);
+    loadTotals();
+  };
 
   const chartData = buildChart(movements, period, metric);
   const summary = buildSummary(movements);
@@ -279,10 +299,20 @@ export default function DashboardPage() {
       {/* Hoy provisional */}
       {(todayData.inQty > 0 || todayData.outQty > 0) && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse inline-block" />
             <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Hoy — provisional</p>
-            <p className="text-xs text-amber-500 ml-auto">Se consolida en analíticas a medianoche</p>
+            {pendingCount > 0 ? (
+              <button
+                onClick={confirmToday}
+                disabled={confirming}
+                className="ml-auto px-3 py-1 text-xs font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+              >
+                {confirming ? 'Confirmando…' : `Confirmar ${pendingCount} movimiento${pendingCount !== 1 ? 's' : ''}`}
+              </button>
+            ) : (
+              <span className="ml-auto text-xs text-green-600 font-medium">Confirmado — ya en analíticas</span>
+            )}
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div>

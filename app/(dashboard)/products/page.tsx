@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import type { Category, ProductVariant } from '@/types/database';
@@ -59,8 +59,8 @@ export default function ProductsPage() {
     setCategories(data || []);
   }, []);
 
-  const fetchProducts = useCallback(async () => {
-    setLoading(true);
+  const fetchProducts = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setProducts([]); return; }
@@ -199,9 +199,8 @@ export default function ProductsPage() {
                   const isOpen = expanded.has(product.id);
                   const discontinued = product.status === 'discontinued';
                   return (
-                    <>
+                    <Fragment key={product.id}>
                       <tr
-                        key={product.id}
                         className={`hover:bg-gray-50 ${discontinued ? 'opacity-60' : ''}`}
                       >
                         <td className="px-4 py-4">
@@ -268,7 +267,7 @@ export default function ProductsPage() {
                       </tr>
 
                       {isOpen && (
-                        <tr key={`${product.id}-exp`} className="bg-gray-50/50">
+                        <tr className="bg-gray-50/50">
                           <td />
                           <td colSpan={6} className="px-6 py-4 space-y-3">
                             {product.cost > 0 && (
@@ -338,7 +337,7 @@ export default function ProductsPage() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -367,7 +366,7 @@ export default function ProductsPage() {
         <StockMovementModal
           target={target}
           onClose={() => setTarget(null)}
-          onSuccess={() => { setTarget(null); fetchProducts(); }}
+          onSuccess={() => { setTarget(null); fetchProducts(true); }}
         />
       )}
 
@@ -375,7 +374,7 @@ export default function ProductsPage() {
         <AdjustmentModal
           target={adjustTarget}
           onClose={() => setAdjustTarget(null)}
-          onSuccess={() => { setAdjustTarget(null); fetchProducts(); }}
+          onSuccess={() => { setAdjustTarget(null); fetchProducts(true); }}
         />
       )}
     </div>

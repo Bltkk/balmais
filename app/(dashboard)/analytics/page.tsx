@@ -205,7 +205,7 @@ export default function AnalyticsPage() {
         .from('stock_movements')
         .select('type, quantity, sale_price, created_at, variant:product_variants(size, product:products(id, name, price, cost))')
         .eq('user_id', user.id)
-        .lt('created_at', startOfToday.toISOString())
+        .or(`confirmed.eq.true,created_at.lt.${startOfToday.toISOString()}`)
         .order('created_at', { ascending: true });
       if (gte) q = q.gte('created_at', gte.toISOString());
       if (lte) q = q.lte('created_at', lte.toISOString());

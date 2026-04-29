@@ -53,6 +53,7 @@ CREATE TABLE stock_movements (
   notes       TEXT,
   commission  INTEGER      NOT NULL DEFAULT 0 CHECK (commission >= 0),
   sale_price  DECIMAL(10,2),   -- precio real de venta (null = precio lleno)
+  confirmed   BOOLEAN      NOT NULL DEFAULT false, -- true = se muestra ya en analíticas sin esperar medianoche
   user_id     UUID NOT NULL REFERENCES auth.users(id),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -152,7 +153,67 @@ END;
 $$;
 
 -- -----------------------------------------------------------------------------
--- 5b. Pagos al vendedor
+-- 5b. Versión admin de register_stock_movement (para WhatsApp webhook con service role)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION register_stock_movement_admin(
+  p_variant_id UUID,
+  p_type       VARCHAR,
+  p_quantity   INTEGER,
+  p_notes      TEXT DEFAULT NULL,
+  p_user_id    UUID DEFAULT NULL
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_variant    product_variants%ROWTYPE;
+  v_owner      UUID;
+  v_new_stock  INTEGER;
+  v_movement   stock_movements;
+BEGIN
+  IF p_type NOT IN ('in', 'out') THEN
+    RAISE EXCEPTION 'type debe ser "in" o "out"';
+  END IF;
+  IF p_quantity <= 0 THEN
+    RAISE EXCEPTION 'quantity debe ser mayor a 0';
+  END IF;
+
+  SELECT * INTO v_variant FROM product_variants WHERE id = p_variant_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Variante no encontrada';
+  END IF;
+
+  SELECT user_id INTO v_owner FROM products WHERE id = v_variant.product_id;
+  IF p_user_id IS NOT NULL AND v_owner <> p_user_id THEN
+    RAISE EXCEPTION 'No autorizado';
+  END IF;
+
+  IF p_type = 'in' THEN
+    v_new_stock := v_variant.current_stock + p_quantity;
+  ELSE
+    v_new_stock := v_variant.current_stock - p_quantity;
+    IF v_new_stock < 0 THEN
+      RAISE EXCEPTION 'Stock insuficiente (disponible: %, solicitado: %)',
+        v_variant.current_stock, p_quantity;
+    END IF;
+  END IF;
+
+  UPDATE product_variants SET current_stock = v_new_stock WHERE id = p_variant_id;
+
+  INSERT INTO stock_movements (variant_id, type, quantity, stock_after, notes, user_id)
+  VALUES (p_variant_id, p_type, p_quantity, v_new_stock, p_notes, v_owner)
+  RETURNING * INTO v_movement;
+
+  RETURN json_build_object(
+    'stock_after', v_new_stock,
+    'movement_id', v_movement.id
+  );
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 5c. Pagos al vendedor
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS vendor_payments (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -168,6 +229,7 @@ CREATE INDEX IF NOT EXISTS idx_vp_user_id ON vendor_payments(user_id);
 -- ALTER TABLE products ADD COLUMN IF NOT EXISTS comision INTEGER NOT NULL DEFAULT 0 CHECK (comision >= 0);
 -- ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS commission INTEGER NOT NULL DEFAULT 0 CHECK (commission >= 0);
 -- CREATE POLICY "movements_update_own" ON stock_movements FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+-- ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT false;
 -- (luego pegar el bloque CREATE OR REPLACE FUNCTION y CREATE TABLE vendor_payments de arriba)
 
 -- -----------------------------------------------------------------------------
