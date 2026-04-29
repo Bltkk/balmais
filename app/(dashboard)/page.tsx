@@ -162,6 +162,7 @@ export default function DashboardPage() {
   const [todayData, setTodayData] = useState({ inQty: 0, outQty: 0, inVal: 0, outVal: 0 });
   const [pendingCount, setPendingCount] = useState(0);
   const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState('');
   const [movements, setMovements] = useState<RawMovement[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -246,16 +247,20 @@ export default function DashboardPage() {
 
   const confirmToday = async () => {
     setConfirming(true);
+    setConfirmError('');
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setConfirming(false); return; }
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-    await supabase
+    const { error } = await supabase
       .from('stock_movements')
       .update({ confirmed: true })
       .eq('user_id', user.id)
       .gte('created_at', startOfDay.toISOString())
       .eq('confirmed', false);
+    if (error) {
+      setConfirmError(error.message);
+    }
     setConfirming(false);
     loadTotals();
   };
@@ -303,13 +308,16 @@ export default function DashboardPage() {
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse inline-block" />
             <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Hoy — provisional</p>
             {pendingCount > 0 ? (
-              <button
-                onClick={confirmToday}
-                disabled={confirming}
-                className="ml-auto px-3 py-1 text-xs font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
-              >
-                {confirming ? 'Confirmando…' : `Confirmar ${pendingCount} movimiento${pendingCount !== 1 ? 's' : ''}`}
-              </button>
+              <div className="ml-auto flex flex-col items-end gap-1">
+                <button
+                  onClick={confirmToday}
+                  disabled={confirming}
+                  className="px-3 py-1 text-xs font-semibold bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                >
+                  {confirming ? 'Confirmando…' : `Confirmar ${pendingCount} movimiento${pendingCount !== 1 ? 's' : ''}`}
+                </button>
+                {confirmError && <p className="text-xs text-red-600">{confirmError}</p>}
+              </div>
             ) : (
               <span className="ml-auto text-xs text-green-600 font-medium">Confirmado — ya en analíticas</span>
             )}
