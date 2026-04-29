@@ -16,6 +16,7 @@ interface RawMovement {
   type: 'in' | 'out';
   quantity: number;
   sale_price: number | null;
+  confirmed: boolean;
   created_at: string;
   variant: {
     size: string;
@@ -200,16 +201,20 @@ export default function AnalyticsPage() {
     const from = getFromDate(p);
     const { from: prevFrom, to: prevTo } = getPrevDateRange(p);
 
-    const movQuery = (gte: Date | null, lte?: Date) => {
+    const movQuery = async (gte: Date | null, lte?: Date) => {
       let q = supabase
         .from('stock_movements')
-        .select('type, quantity, sale_price, created_at, variant:product_variants(size, product:products(id, name, price, cost))')
+        .select('type, quantity, sale_price, confirmed, created_at, variant:product_variants(size, product:products(id, name, price, cost))')
         .eq('user_id', user.id)
-        .or(`confirmed.eq.true,created_at.lt.${startOfToday.toISOString()}`)
         .order('created_at', { ascending: true });
       if (gte) q = q.gte('created_at', gte.toISOString());
       if (lte) q = q.lte('created_at', lte.toISOString());
-      return q;
+      const { data } = await q;
+      // incluir solo movimientos de días anteriores o confirmados manualmente
+      const filtered = ((data || []) as unknown as RawMovement[]).filter(
+        (m) => m.confirmed || new Date(m.created_at) < startOfToday
+      );
+      return { data: filtered };
     };
 
     const [{ data: mvs }, { data: prevMvs }, { data: products }] = await Promise.all([
@@ -222,8 +227,8 @@ export default function AnalyticsPage() {
         .order('name'),
     ]);
 
-    setMovements((mvs as unknown as RawMovement[]) || []);
-    setPrevMovements((prevMvs as unknown as RawMovement[]) || []);
+    setMovements((mvs as RawMovement[]) || []);
+    setPrevMovements((prevMvs as RawMovement[]) || []);
 
     const parsed = ((products || []) as {
       id: string; name: string; price: number; cost: number;
