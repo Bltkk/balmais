@@ -78,9 +78,9 @@ function getBucketKey(date: Date, period: Period): string {
 }
 
 function generateAllBuckets(from: Date | null, period: Period, fallbackStart?: Date): string[] {
-  const yesterday = new Date();
-  yesterday.setHours(0, 0, 0, 0);
-  yesterday.setDate(yesterday.getDate() - 1);
+  // incluye hoy para mostrar movimientos confirmados del día en curso
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   const periodStart = from ?? fallbackStart;
   if (!periodStart) return [];
@@ -93,7 +93,7 @@ function generateAllBuckets(from: Date | null, period: Period, fallbackStart?: D
   if (period === '7d' || period === '30d') {
     const cur = new Date(start);
     cur.setHours(0, 0, 0, 0);
-    while (cur <= yesterday) {
+    while (cur <= today) {
       const key = cur.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' });
       if (!seen.has(key)) { buckets.push(key); seen.add(key); }
       cur.setDate(cur.getDate() + 1);
@@ -102,14 +102,14 @@ function generateAllBuckets(from: Date | null, period: Period, fallbackStart?: D
     const cur = new Date(start);
     cur.setHours(0, 0, 0, 0);
     cur.setDate(cur.getDate() - cur.getDay());
-    while (cur <= yesterday) {
+    while (cur <= today) {
       const key = cur.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' });
       if (!seen.has(key)) { buckets.push(key); seen.add(key); }
       cur.setDate(cur.getDate() + 7);
     }
   } else {
     const cur = new Date(start.getFullYear(), start.getMonth(), 1);
-    const endMonth = new Date(yesterday.getFullYear(), yesterday.getMonth(), 1);
+    const endMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     while (cur <= endMonth) {
       const key = cur.toLocaleDateString('es-CL', { month: 'short', year: '2-digit' });
       if (!seen.has(key)) { buckets.push(key); seen.add(key); }
@@ -201,7 +201,7 @@ export default function AnalyticsPage() {
     const from = getFromDate(p);
     const { from: prevFrom, to: prevTo } = getPrevDateRange(p);
 
-    const movQuery = async (gte: Date | null, lte?: Date) => {
+    const fetchMov = async (gte: Date | null, lte?: Date): Promise<RawMovement[]> => {
       let q = supabase
         .from('stock_movements')
         .select('type, quantity, sale_price, confirmed, created_at, variant:product_variants(size, product:products(id, name, price, cost))')
@@ -210,16 +210,14 @@ export default function AnalyticsPage() {
       if (gte) q = q.gte('created_at', gte.toISOString());
       if (lte) q = q.lte('created_at', lte.toISOString());
       const { data } = await q;
-      // incluir solo movimientos de días anteriores o confirmados manualmente
-      const filtered = ((data || []) as unknown as RawMovement[]).filter(
-        (m) => m.confirmed || new Date(m.created_at) < startOfToday
-      );
-      return { data: filtered };
+      const rows = (data || []) as unknown as RawMovement[];
+      // incluir movimientos de días anteriores o confirmados manualmente
+      return rows.filter((m) => m.confirmed || new Date(m.created_at) < startOfToday);
     };
 
-    const [{ data: mvs }, { data: prevMvs }, { data: products }] = await Promise.all([
-      movQuery(from),
-      p !== 'all' ? movQuery(prevFrom, prevTo) : Promise.resolve({ data: [] }),
+    const [mvs, prevMvs, { data: products }] = await Promise.all([
+      fetchMov(from),
+      p !== 'all' ? fetchMov(prevFrom, prevTo) : Promise.resolve([] as RawMovement[]),
       supabase
         .from('products')
         .select('id, name, price, cost, variants:product_variants(size, current_stock)')
@@ -227,8 +225,8 @@ export default function AnalyticsPage() {
         .order('name'),
     ]);
 
-    setMovements((mvs as RawMovement[]) || []);
-    setPrevMovements((prevMvs as RawMovement[]) || []);
+    setMovements(mvs);
+    setPrevMovements(prevMvs);
 
     const parsed = ((products || []) as {
       id: string; name: string; price: number; cost: number;
