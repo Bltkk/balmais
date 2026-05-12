@@ -1,14 +1,22 @@
-// Módulo exclusivo de servidor — NO importar desde client components
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
+/**
+ * Supabase Admin Client
+ * 
+ * Este cliente usa la service role key y solo debe usarse en el servidor.
+ * NO lo uses en componentes del cliente.
+ */
 
-let _adminClient: SupabaseClient | null = null
+import { createClient } from '@supabase/supabase-js'
 
-export function getSupabaseAdmin(): SupabaseClient {
-  if (!_adminClient) {
-    _adminClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-  }
-  return _adminClient
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+
+if (!supabaseUrl || !supabaseServiceRoleKey) {
+  throw new Error('Missing Supabase environment variables')
 }
+
+export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+})

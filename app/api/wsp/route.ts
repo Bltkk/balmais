@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHmac, timingSafeEqual } from 'crypto'
-import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 async function verifySignature(request: NextRequest, rawBody: string): Promise<boolean> {
   const secret = process.env.WHATSAPP_APP_SECRET
@@ -71,7 +71,7 @@ async function sendWhatsAppMessage(to: string, text: string) {
 }
 
 async function findProductByCode(code: string, userId: string) {
-  const { data } = await getSupabaseAdmin()
+  const { data } = await supabaseAdmin
     .from('products')
     .select('*, variants:product_variants(id, size, current_stock)')
     .eq('code', code)
@@ -120,7 +120,7 @@ async function handleStockOperation(
   const { variant, error } = resolveVariant(product, size)
   if (error || !variant) return `❌ ${error}`
 
-  const { data, error: rpcError } = await getSupabaseAdmin().rpc('register_stock_movement_admin', {
+  const { data, error: rpcError } = await supabaseAdmin.rpc('register_stock_movement_admin', {
     p_variant_id: variant.id,
     p_type: type,
     p_quantity: quantity,
@@ -167,7 +167,7 @@ async function handleStockQuery(code: string, userId: string): Promise<string> {
 const LISTA_PAGE_SIZE = 8
 
 async function handleListProducts(userId: string, page = 1): Promise<string> {
-  const { data: products } = await getSupabaseAdmin()
+  const { data: products } = await supabaseAdmin
     .from('products')
     .select('*, variants:product_variants(current_stock)')
     .eq('user_id', userId)
@@ -190,7 +190,7 @@ async function handleListProducts(userId: string, page = 1): Promise<string> {
 }
 
 async function handleLowStock(userId: string): Promise<string> {
-  const { data: products } = await getSupabaseAdmin()
+  const { data: products } = await supabaseAdmin
     .from('products')
     .select('code, name, variants:product_variants(size, current_stock)')
     .eq('user_id', userId)

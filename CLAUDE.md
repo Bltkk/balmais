@@ -167,3 +167,43 @@ Sistema de comandos vía WhatsApp Business API en `app/api/wsp/route.ts`.
 - `AYUDA` - Mostrar ayuda
 
 El webhook procesa mensajes entrantes y responde automáticamente. Requiere configurar el webhook en Meta for Developers apuntando a `/api/wsp`.
+
+## API REST v1
+
+API segura para consumir datos de inventario y analytics. Documentación completa en `docs/API.md`.
+
+**Endpoints:**
+- `GET /api/v1/health` - Health check (sin autenticación)
+- `GET /api/v1/products` - Lista de productos
+- `GET /api/v1/products/[id]` - Detalles de producto
+- `GET /api/v1/stock` - Estado del stock
+- `POST /api/v1/stock` - Actualizar stock
+- `GET /api/v1/analytics` - Métricas de analytics
+- `GET /api/v1/movements` - Historial de movimientos
+
+**Autenticación:**
+```
+Authorization: Bearer <API_KEY>
+```
+
+**Seguridad implementada:**
+- Validación de API key (comparación constante)
+- Rate limiting (100 GET/min, 50 POST/min por IP)
+- Validación de entrada (parámetros, tipos, rangos)
+- Prevención de SQL injection (RLS + parámetros preparados)
+- Prevención de XSS (sanitización, validación Content-Type)
+- Logging de eventos de seguridad
+- Manejo seguro de errores
+
+**Variables de entorno:**
+- `API_KEY` - Clave de autenticación (generar con `openssl rand -hex 32`)
+
+**Documentación:**
+- `docs/API.md` - Documentación completa
+- `docs/SECURITY.md` - Guía de seguridad
+- `docs/API-SECURITY-CHECKLIST.md` - Checklist de seguridad
+- `docs/API-IMPLEMENTATION-SUMMARY.md` - Resumen de implementación
+
+**Testing:**
+- `npm test -- __tests__/api/v1/security.test.ts` - Tests automatizados
+- `./scripts/test-api.sh` - Script de pruebas manual
