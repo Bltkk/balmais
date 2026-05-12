@@ -32,3 +32,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Security - Credentials and sensitive files
+docs/CREDENTIALS-SETUP.md
+docs/*-credentials.md
+docs/*-secrets.md
+.env.production
+.env.staging
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials/
