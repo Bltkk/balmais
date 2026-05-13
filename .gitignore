@@ -45,3 +45,11 @@ docs/*-secrets.md
 *.pfx
 secrets/
 credentials/
+
+# API Credentials - DO NOT COMMIT
+VERCEL-VARIABLES-LISTAS.txt
+API-CREDENTIALS.json
+api_client.py
+*-credentials.*
+*-secrets.*
+VERCEL-ENV-SETUP.txt
