@@ -41,6 +41,11 @@ export async function GET(request: NextRequest) {
       return errorResponse('Too many requests', 429)
     }
 
+    const userId = process.env.API_USER_ID
+    if (!userId) {
+      return errorResponse('API_USER_ID not configured', 500)
+    }
+
     const { searchParams } = new URL(request.url)
     const productId = searchParams.get('productId')
     const includeVariants = searchParams.get('includeVariants') !== 'false'
@@ -59,6 +64,7 @@ export async function GET(request: NextRequest) {
           current_stock
         )
       `)
+      .eq('user_id', userId)
       .order('code')
 
     if (productId) {

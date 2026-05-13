@@ -52,6 +52,11 @@ export async function GET(request: NextRequest) {
     const search = sanitizeString(searchParams.get('search') || '', 100)
     const status = sanitizeString(searchParams.get('status') || 'active', 20)
 
+    const userId = process.env.API_USER_ID
+    if (!userId) {
+      return errorResponse('API_USER_ID not configured', 500)
+    }
+
     let query = supabaseAdmin
       .from('products')
       .select(`
@@ -70,6 +75,7 @@ export async function GET(request: NextRequest) {
           current_stock
         )
       `)
+      .eq('user_id', userId)
       .eq('status', status)
       .order('code')
       .range(offset, offset + limit - 1)

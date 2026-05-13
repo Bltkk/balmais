@@ -38,6 +38,11 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
 
+    const userId = process.env.API_USER_ID
+    if (!userId) {
+      return NextResponse.json({ error: 'API_USER_ID not configured' }, { status: 500 })
+    }
+
     let query = supabaseAdmin
       .from('stock_movements')
       .select(`
@@ -51,9 +56,10 @@ export async function GET(request: NextRequest) {
         variant:product_variants(
           id,
           size,
-          product:products(id, code, name, price, cost)
+          product:products!inner(id, code, name, price, cost, user_id)
         )
       `)
+      .eq('variant.product.user_id', userId)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 

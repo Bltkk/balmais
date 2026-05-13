@@ -52,6 +52,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const userId = process.env.API_USER_ID
+    if (!userId) {
+      return NextResponse.json({ error: 'API_USER_ID not configured' }, { status: 500 })
+    }
+
     const { searchParams } = new URL(request.url)
     const period = (searchParams.get('period') || '30d') as Period
     const productId = searchParams.get('productId')
@@ -61,7 +66,7 @@ export async function GET(request: NextRequest) {
 
     const from = getFromDate(period)
 
-    // Obtener movimientos
+    // Obtener movimientos filtrando por user_id a través del producto
     let movementsQuery = supabaseAdmin
       .from('stock_movements')
       .select(`
@@ -72,9 +77,10 @@ export async function GET(request: NextRequest) {
         created_at,
         variant:product_variants(
           size,
-          product:products(id, name, price, cost)
+          product:products!inner(id, name, price, cost, user_id)
         )
       `)
+      .eq('variant.product.user_id', userId)
       .order('created_at', { ascending: true })
 
     if (from) {
@@ -103,6 +109,7 @@ export async function GET(request: NextRequest) {
         cost,
         variants:product_variants(size, current_stock)
       `)
+      .eq('user_id', userId)
 
     if (productId) {
       stockQuery = stockQuery.eq('id', productId)
